@@ -1,0 +1,15 @@
+{
+  "$schema": "node_modules/wrangler/config-schema.json",
+  "name": "searchscope-ai-visibility-mcp",
+  "main": "src/index.ts",
+  "compatibility_date": "2026-08-22",
+  "compatibility_flags": ["nodejs_compat"],
+  "workers_dev": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 0.2
+  }
+  // No bindings, no KV, no D1, no Durable Objects: the server is fully stateless.
+  // Deploy with `npm run deploy` (needs a Cloudflare API token) or connect the
+  // repository to Cloudflare Workers Builds for automatic deploys from `main`.
+}

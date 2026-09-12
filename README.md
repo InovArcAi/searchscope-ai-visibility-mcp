@@ -1,0 +1,173 @@
+# Search Scope AI Visibility Auditor
+
+A remote [MCP](https://modelcontextprotocol.io) server on Cloudflare Workers that lets Claude and other MCP-compatible assistants audit a public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities.
+
+Publisher: [Search Scope](https://searchscope.com.au/). Stateless, read-only, no accounts, no database, no paid APIs.
+
+- MCP endpoint (Streamable HTTP): `https://searchscope-ai-visibility-mcp.<your-account>.workers.dev/mcp`
+- Landing page: `/` (HTML, or JSON with `Accept: application/json`)
+- Health: `/health` returns `{"status":"ok","service":"Search Scope AI Visibility Auditor"}`
+
+## 1. What the server does
+
+It fetches a small prioritised sample of a site (homepage, about, services or products, pricing, locations, key guides), extracts on-page signals with deterministic heuristics, and returns structured findings a professional SEO can act on. It does not call an LLM, does not measure real citations inside ChatGPT, Claude, Gemini or Google AI Overviews, and never invents evidence. Everything reported is either observed on the fetched pages or explicitly labelled as an inferred gap.
+
+## 2. Exposed MCP tools
+
+Three focused tools, following Cloudflare's guidance that a few well-described tools beat a large API surface.
+
+### `audit_ai_visibility`
+
+Input: `{ "url": "https://example.com", "maxPages": 8 }` (`maxPages` optional, default 8, hard maximum 15).
+
+Returns Markdown text plus `structuredContent` with ten sections:
+
+| Section | Content |
+|---|---|
+| A. Executive summary | Short diagnosis, six qualitative ratings, headline facts |
+| B. Entity clarity | Primary entity, supporting entities, unclear relationships, confidence notes |
+| C. AI retrievability | Per-page rating with the rubric, question-heading answer verdicts, site-wide issues |
+| D. Information gain | First-party evidence phrases actually found (with excerpts) and what was not detected |
+| E. Trust / corroboration | Named people, organisation identity, contact details, citations, credentials, third-party evidence, gaps |
+| F. Internal linking / architecture | Orphan-like pages, hierarchy issues, ambiguous anchors, missing commercial-to-supporting links |
+| G. Structured data | Schema types found, relevant omissions, issues; explicitly notes schema is not a ranking factor |
+| H. Commercial query coverage | Inferred offerings, category, locations, likely intents with the page that covers each, gaps |
+| I. Top 10 actions | Ranked by commercial impact, then AI/search visibility impact, then ease, each with evidence |
+| J. 20 prompts to monitor | Balanced across informational, commercial, comparison, recommendation, alternatives, brand, category, trust and local (only when a location is detected) |
+
+### `extract_site_entities`
+
+Input: `{ "url": "https://example.com", "maxPages": 8 }`.
+
+Returns the primary entity; related entities grouped into people, organisation/brand, products, services, locations and topics; relationships (`Brand -> offers -> Service`, `Brand -> located in -> City`, `Person -> founder of -> Brand`); ambiguities; missing entity support; schema types found; suggested schema types appropriate to the visible business. Every detection carries a confidence (`high`, `medium`, `low`) and the source it came from.
+
+### `generate_geo_query_universe`
+
+Input: `{ "url": "https://example.com", "service": "optional override", "location": "optional override", "count": 40 }` (`count` default 40, max 100; pass `location: "none"` to force non-local prompts).
+
+Returns prompts grouped by intent (informational, problem-aware, commercial, recommendation, comparison, alternatives, brand, category, local, trust/validation). Each prompt has `intent`, `buyerStage`, `idealPageType` and `commercialPriority`.
+
+## 3. Local development
+
+Requirements: Node 22+, npm.
+
+```bash
+npm install --legacy-peer-deps   # the agents SDK declares many optional peers; npm 10 needs this flag
+npm run dev                      # wrangler dev on http://localhost:8787
+curl http://localhost:8787/health
+```
+
+To audit a local mock site while developing (the SSRF rules reject loopback targets by default):
+
+```bash
+node scripts/mock-site.mjs 80                     # serves the test fixture on http://127.0.0.1
+npx wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1
+```
+
+The flag only has effect when the request itself arrives on a loopback host, so it is inert on `workers.dev` or a custom domain even if set by mistake.
+
+## 4. Testing with MCP Inspector
+
+```bash
+npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method tools/list
+npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method tools/call \
+  --tool-name audit_ai_visibility --tool-arg url=https://example.com.au maxPages=8
+npx @modelcontextprotocol/inspector            # web UI; connect with transport "Streamable HTTP" and the /mcp URL
+```
+
+Automated tests run inside the Workers runtime (workerd) via `@cloudflare/vitest-pool-workers`, so `HTMLRewriter`, timeouts and fetch semantics match production:
+
+```bash
+npm run typecheck
+npm test
+```
+
+The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, DNS rebinding, maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
+
+## 5. Deployment
+
+The Worker has no bindings or secrets. Two options:
+
+**Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. If you use this, delete the `deploy` job from `.github/workflows/deploy.yml` so the Worker is not deployed twice.
+
+**Option B: GitHub Actions.** Add repository secrets `CLOUDFLARE_API_TOKEN` (template "Edit Cloudflare Workers") and `CLOUDFLARE_ACCOUNT_ID`. The workflow runs typecheck and tests on every push and PR, and deploys on pushes to `main`.
+
+**Manual.** `npx wrangler login && npm run deploy`.
+
+Plan note: the crawl parses up to 15 HTML pages per call. That comfortably fits the Workers Paid plan CPU limit (30 s). On the Workers Free plan (10 ms CPU per request) larger audits may be cut short; keep `maxPages` small or move to Paid.
+
+## 6. Production MCP URL
+
+`https://searchscope-ai-visibility-mcp.<account-subdomain>.workers.dev/mcp`
+
+The exact hostname is shown by `wrangler deploy` and in the Cloudflare dashboard. A custom domain (for example `mcp.searchscope.com.au`) can be attached later under the Worker's Settings, Domains & Routes.
+
+## 7. Example prompts
+
+- "Audit https://example.com.au for AI search visibility and give me the top 10 fixes."
+- "Extract the entity map for https://example.com.au and tell me which relationships are weak."
+- "Generate 60 AI search prompts to monitor for https://example.com.au, focused on 'emergency plumbing' in Perth."
+- "Run the AI visibility audit on my client's site with 12 pages and summarise section C and section I for a non-technical owner."
+
+## 8. Security architecture
+
+The Worker must not be usable as an open proxy. Every URL it fetches (initial target, each redirect hop, each discovered page, sitemaps, robots.txt) goes through the same gate:
+
+1. Syntax: only `http`/`https`; credentials in the URL rejected; only default ports; hostnames only (IP literals rejected, including obfuscated forms the URL parser normalises).
+2. Hostname deny-list: `localhost`, single-label names, `.local`, `.internal`, `.home.arpa`, `.arpa`, `.onion`, `metadata.google.internal` and similar.
+3. IP deny-list: loopback, RFC1918, CGNAT (100.64/10), link-local, multicast, reserved, TEST-NETs, unique-local and link-local IPv6, IPv4-mapped/NAT64/6to4/Teredo embeddings, and known cloud metadata addresses.
+4. DNS resolution through Cloudflare DNS-over-HTTPS with every A/AAAA answer checked against the deny-list. Resolution failure rejects the target (fail closed). This is what stops a public hostname that resolves to a private address.
+5. Redirects are handled manually (`redirect: "manual"`), capped at 5, and each hop is re-validated from step 1.
+6. The crawler stays on the same site (host, ignoring `www.`), never fetches off-site links, never submits forms, never executes JavaScript, never authenticates.
+7. Only `text/html` (pages) and XML/plain text (sitemaps, robots) are read; anything else is rejected before the body is read. Bodies are capped (1.5 MB per page) and truncated with a flag.
+8. Per-page timeout 8 s, whole-crawl budget 25 s, concurrency 4, at most 15 pages, at most 3 child sitemaps, 500 sitemap URLs.
+9. The server refuses to audit its own hostname, rejects MCP request bodies over 32 KB, and identifies itself as `SearchScopeAIVisibilityAuditor/1.0 (+https://searchscope.com.au/ai-visibility-scanner/)`.
+10. The MCP handler validates the `Host` header on `workers.dev` and rejects browser `Origin` headers that are not allow-listed (DNS-rebinding protection from the SDK).
+
+There is no authentication in v1. If abuse becomes a problem, attach a Cloudflare WAF rate-limiting rule to `/mcp` (no code change) or add a bearer token check in `src/index.ts`.
+
+## 9. Privacy behaviour
+
+Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Cloudflare Workers observability logs (sampled) contain request metadata only. Fetched HTML never leaves the request.
+
+## 10. Connecting another MCP client
+
+Any client that supports MCP Streamable HTTP can connect with the endpoint URL and no credentials.
+
+- Claude (web or desktop): Settings, Connectors, Add custom connector, paste the `/mcp` URL.
+- Claude Code: `claude mcp add --transport http searchscope-auditor https://<worker>.workers.dev/mcp`
+- Cursor / Windsurf / other editors: add an MCP server of type `http` (or `streamable-http`) with the same URL.
+- Programmatic (TypeScript):
+
+```ts
+import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
+const client = new Client({ name: "my-app", version: "1.0.0" });
+await client.connect(new StreamableHTTPClientTransport(new URL("https://<worker>.workers.dev/mcp")));
+const result = await client.callTool({ name: "audit_ai_visibility", arguments: { url: "https://example.com.au" } });
+```
+
+Legacy 2025-era clients that POST plain JSON-RPC to `/mcp` are also served through the SDK's stateless compatibility lane.
+
+## Rating rubrics
+
+All ratings are qualitative (`Strong`, `Moderate`, `Weak`) with deterministic rules. There is no universal "GEO score".
+
+- **AI retrievability (per page)**: Strong = a definition or positioning paragraph of 20+ words within the first blocks after the H1, at least 1.5 concrete facts (numbers, prices, dates, units, named entities) per 100 words, under 45% of passages shorter than 15 words, and at least 60% of question headings answered directly in the following passage. Weak = under 120 words of main copy, or no definition paragraph combined with under 0.6 facts per 100 words or over 65% fragment passages. Otherwise Moderate. The site rating averages page ratings.
+- **Question answers**: `direct` (opens by restating and answering, or substantive and concrete), `thin` (under 20 words follow), `vague` (hedges such as "it depends" or "contact us" with no concrete facts), `split` (a 45+ word first sentence that neither restates nor answers), `missing` (heading followed by another heading).
+- **Information gain**: Strong = three or more of {original data or research phrases, experiments or benchmarks, case studies, quantified results, quotes}; Moderate = one or two; Weak = none.
+- **Trust**: eight signals (named people, phone, email or contact page, address, outbound citations, credentials, third-party evidence, legal identity). Strong = 6+, Moderate = 3 to 5, Weak = under 3.
+- **Entity clarity**: six checks (brand from schema or og:site_name, one consistent name, offerings identified, at most six locations, named people, organisation schema present). Strong = 5+, Moderate = 3 to 4, Weak = under 3.
+- **Architecture**: Strong = no orphan-like pages, hierarchy issues, missing commercial-to-supporting links or heavy generic anchors; Moderate = up to three issues; Weak = more.
+- **Structured data**: Strong = organisation entity on the homepage with at most two issues; Moderate = some JSON-LD; Weak = none. FAQPage, HowTo and self-serving Review/AggregateRating markup are never recommended.
+
+## Stack
+
+- Cloudflare Workers, `wrangler` 4, `compatibility_date` 2026-08-22, `nodejs_compat`
+- `agents` 0.23 (`createMcpHandler` from `agents/mcp/server`, the current stateless pattern; no `McpAgent`, no Durable Objects)
+- `@modelcontextprotocol/server` 2.0 with Zod 4 input and output schemas
+- Native `HTMLRewriter` for parsing (no JavaScript execution, streaming, no third-party HTML parser)
+- `@cloudflare/vitest-pool-workers` + Vitest 4 for tests
+
+## Licence
+
+MIT. See `LICENSE`.
