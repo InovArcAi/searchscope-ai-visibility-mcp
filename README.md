@@ -98,9 +98,11 @@ Plan note: the crawl parses up to 15 HTML pages per call. That comfortably fits 
 
 ## 6. Production MCP URL
 
-`https://searchscope-ai-visibility-mcp.searchscope.workers.dev/mcp`
+`https://mcp.searchscope.com.au/mcp` (custom domain), with `https://searchscope-ai-visibility-mcp.searchscope.workers.dev/mcp` still serving the same Worker.
 
-A custom domain (for example `mcp.searchscope.com.au`) is attached under the Worker's Settings, then Domains & Routes, then Add, then Custom Domain. The zone must already be on the same Cloudflare account; the DNS record and certificate are created automatically. No code or config change is needed: host validation is skipped for non-workers.dev hostnames, and the handler accepts any request origin. Both URLs keep working once a custom domain is attached, so clients can be migrated one at a time.
+A custom domain is attached under the Worker's Settings, then Domains & Routes, then Add, then Custom Domain. The zone must already be on the same Cloudflare account; the DNS record and certificate are created automatically. No code or config change is needed: host validation is skipped for non-workers.dev hostnames, and the handler accepts any request origin.
+
+The root URL serves a branded landing page (Search Scope logo, brand palette, tool list, privacy statement and a contact call to action) built from the constants in `src/config.ts`. Every tool response also ends with a short `## About this report` attribution block, defined once as `REPORT_FOOTER` in `src/config.ts` so the wording stays consistent across all three tools. Tests assert both are present, so removing them fails the suite rather than silently shipping an unbranded build.
 
 ## 7. Example prompts
 

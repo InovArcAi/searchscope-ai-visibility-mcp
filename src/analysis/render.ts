@@ -1,3 +1,4 @@
+import { REPORT_FOOTER } from "../config";
 import type { AuditReport } from "./audit";
 import type { EntityMap } from "./entities";
 import type { GeoQuery } from "./queries";
@@ -83,6 +84,7 @@ export function renderAudit(r: AuditReport): string {
   push();
   push("## J. 20 AI search prompts to monitor");
   for (const q of r.monitoringPrompts) push(`- ${q.query} (${q.intent}, ${q.buyerStage}, ${q.commercialPriority} priority; ideal page: ${q.idealPageType})`);
+  push(REPORT_FOOTER);
   return L.join("\n");
 }
 
@@ -121,6 +123,7 @@ export function renderEntityMap(target: string, m: EntityMap): string {
   push("## Suggested schema types");
   for (const s of m.suggestedSchemaTypes) push(`- ${s.type} on ${s.where}: ${s.why}`);
   if (!m.suggestedSchemaTypes.length) push("- current coverage is appropriate for the visible business");
+  push(REPORT_FOOTER);
   return L.join("\n");
 }
 
@@ -137,5 +140,6 @@ export function renderQueries(target: string, meta: { brand: string; category: s
     L.push(`## ${intent} (${qs.length})`);
     for (const q of qs) L.push(`- ${q.query} | stage: ${q.buyerStage} | ideal page: ${q.idealPageType} | priority: ${q.commercialPriority}`);
   }
+  L.push(REPORT_FOOTER);
   return L.join("\n");
 }

@@ -33,13 +33,19 @@ describe("HTTP surface", () => {
     expect(html.headers.get("content-type")).toContain("text/html");
     const text = await html.text();
     expect(text).toContain("/mcp");
-    expect(text).toContain("not stored");
-    expect(text).toContain("Search Scope");
+    // Privacy promise must stay visible on the page, and the Search Scope
+    // branding (logo, publisher name, contact call to action) must survive edits.
+    expect(text).toMatch(/Nothing is stored/i);
+    expect(text).toContain("Search Scope AI Visibility Auditor");
+    expect(text).toContain("https://searchscope.com.au/logo-horizontal.png");
+    expect(text).toContain("https://searchscope.com.au/contact/");
+    expect(text).toContain("Perth, Western Australia");
     const json = await SELF.fetch(`${BASE}/`, { headers: { accept: "application/json" } });
     const body = (await json.json()) as { mcpEndpoint: string; tools: { name: string }[]; publisher: string };
     expect(body.mcpEndpoint).toBe(`${BASE}/mcp`);
     expect(body.tools.map((t) => t.name)).toEqual(["audit_ai_visibility", "extract_site_entities", "generate_geo_query_universe"]);
     expect(body.publisher).toBe("Search Scope");
+    expect(body.privacy).toMatch(/not stored/);
   });
   it("404s unknown paths and rejects oversized MCP bodies", async () => {
     expect((await SELF.fetch(`${BASE}/nope`)).status).toBe(404);
@@ -100,6 +106,9 @@ describe("MCP tools", () => {
     expect(sc.commercialCoverage.inferredLocations).toContain("Perth");
     expect(sc.architecture.ambiguousAnchors.map((a: { text: string }) => a.text)).toEqual(expect.arrayContaining(["learn more", "click here"]));
     expect(sc.methodology).toMatch(/does not measure actual citations/);
+    // Every report carries the Search Scope attribution and call to action.
+    expect(text).toContain("## About this report");
+    expect(text).toContain("https://searchscope.com.au/contact/");
     await client.close();
   });
 
@@ -134,6 +143,7 @@ describe("MCP tools", () => {
     expect(sc.relationships.every((r: { confidence: string }) => ["high", "medium", "low"].includes(r.confidence))).toBe(true);
     const text = (res.content as { text: string }[])[0]?.text ?? "";
     expect(text).toContain("## Entity relationships");
+    expect(text).toContain("## About this report");
     await client.close();
   });
 
