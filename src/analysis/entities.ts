@@ -1,5 +1,5 @@
 import type { SiteModel, Confidence } from "./site";
-import { ORG_TYPES, stripBrandSuffix } from "./site";
+import { EDU_TYPES, ORG_TYPES, stripBrandSuffix } from "./site";
 
 export interface EntityRelationship {
   subject: string;
@@ -29,7 +29,10 @@ export interface EntityMap {
 const LOCAL_BUSINESS_HINT = /(plumb|electric|roof|dentist|dental|clinic|physio|chiro|lawyer|solicitor|accountant|restaurant|cafe|salon|gym|mechanic|builder|landscap|cleaning|removal|storage|florist|vet|pharmacy|hotel|real estate|agent|repair|installation|pest|painting|tiling|concrete|fencing|glazier|locksmith|tutor|childcare|day care|therapist|counsell|massage|barber|bakery|butcher|catering|mortgage|broker|insurance|conveyanc|migration|tax)/i;
 
 export function buildEntityMap(site: SiteModel): EntityMap {
-  const orgTypes = [...site.schemaTypes.keys()].filter((t) => ORG_TYPES.test(t));
+  // Educational types are excluded: on a consultancy site they are the founder's
+  // university, not the business, and picking one as the primary entity type is
+  // worse than falling back to an inferred LocalBusiness.
+  const orgTypes = [...site.schemaTypes.keys()].filter((t) => ORG_TYPES.test(t) && !EDU_TYPES.test(t));
   const isLocal = site.locations.some((l) => l.confidence !== "low") || site.addresses.length > 0 || site.phones.length > 0;
   const primaryType = orgTypes.find((t) => t !== "Organization" && t !== "WebSite") ?? (isLocal && LOCAL_BUSINESS_HINT.test(site.offerings.map((o) => o.value).join(" ") + " " + (site.home?.parsed.title ?? "")) ? "LocalBusiness (inferred)" : "Organization (inferred)");
 

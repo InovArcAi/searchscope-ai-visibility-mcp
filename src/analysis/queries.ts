@@ -24,6 +24,21 @@ export interface QueryUniverseInput {
 
 const INTENT_ORDER: QueryIntent[] = ["commercial", "recommendation", "local", "comparison", "problem-aware", "informational", "alternatives", "category", "brand", "trust-validation"];
 
+/**
+ * Pluralise a category noun. "SEO agency" becomes "SEO agencies", not the
+ * "seo agencys" that appeared in generated prompts.
+ */
+export function pluralise(noun: string): string {
+  const words = noun.trim().split(/\s+/);
+  const last = words[words.length - 1] ?? "";
+  let plural: string;
+  if (/[^aeiou]y$/i.test(last)) plural = `${last.slice(0, -1)}ies`;
+  else if (/(s|x|z|ch|sh)$/i.test(last)) plural = `${last}es`;
+  else if (/[^aeiou]o$/i.test(last)) plural = `${last}es`;
+  else plural = `${last}s`;
+  return [...words.slice(0, -1), plural].join(" ");
+}
+
 function lc(s: string): string {
   return s.trim().replace(/\s+/g, " ").toLowerCase();
 }
@@ -76,6 +91,7 @@ export function inferCategory(site: SiteModel): string {
 export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   const brand = input.brand;
   const cat = lc(input.category);
+  const cats = pluralise(cat);
   const loc = input.location?.trim();
   const services = [...new Set(input.services.map(serviceToPhrase).filter((s) => s.length > 2))].slice(0, 6);
   const primary = services[0] ?? cat;
@@ -110,7 +126,7 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   }
 
   // Comparison
-  add(`${brand} vs other ${cat}s${inLoc}`, "comparison", "consideration", "comparison page", "medium");
+  add(`${brand} vs other ${cats}${inLoc}`, "comparison", "consideration", "comparison page", "medium");
   if (services.length >= 2) add(`${services[0]} vs ${services[1]}: which do I need?`, "comparison", "consideration", "comparison guide", "medium");
   add(`How does ${brand} compare on price and turnaround?`, "comparison", "consideration", "pricing page", "medium");
   add(`Is it better to use a local ${cat} or a national one?`, "comparison", "consideration", "buyer's guide", "low");
@@ -134,8 +150,8 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   add(`Can I do ${primary} myself instead of hiring a ${cat}?`, "alternatives", "awareness", "DIY vs professional guide", "medium");
 
   // Category
-  add(`Top ${cat}s${inLoc} for ${primary}`, "category", "consideration", "homepage and category page", "medium");
-  add(`List of ${cat}s${inLoc} that specialise in ${primary}`, "category", "consideration", "service page", "medium");
+  add(`Top ${cats}${inLoc} for ${primary}`, "category", "consideration", "homepage and category page", "medium");
+  add(`List of ${cats}${inLoc} that specialise in ${primary}`, "category", "consideration", "service page", "medium");
   add(`What types of ${cat} are there?`, "category", "awareness", "category explainer", "low");
 
   // Brand
@@ -165,8 +181,8 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
     add(`What does a good ${s} provider look like?`, "recommendation", "consideration", "About page and case studies", "medium");
     add(`${s} vs doing nothing: what are the risks?`, "problem-aware", "awareness", "explainer article", "low");
   }
-  add(`Which ${cat}s${inLoc} offer fixed pricing?`, "commercial", "decision", "pricing page", "high");
-  add(`Which ${cat}s${inLoc} have same-day availability?`, "commercial", "decision", "service page with availability", "medium");
+  add(`Which ${cats}${inLoc} offer fixed pricing?`, "commercial", "decision", "pricing page", "high");
+  add(`Which ${cats}${inLoc} have same-day availability?`, "commercial", "decision", "service page with availability", "medium");
   add(`${cat} that specialises in ${primary}`, "category", "decision", "service page", "high");
   add(`Most experienced ${cat}${inLoc}`, "recommendation", "decision", "About page with credentials", "medium");
   add(`Family-owned or independent ${cat}${inLoc}`, "recommendation", "decision", "About page", "low");
@@ -175,7 +191,7 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   add(`Red flags when choosing a ${cat}`, "trust-validation", "consideration", "buyer's guide", "medium");
   add(`How do I verify a ${cat} is legitimate${inLoc}?`, "trust-validation", "decision", "About page with ABN and licences", "medium");
   add(`Does ${brand} have case studies or examples of past work?`, "brand", "consideration", "case studies page", "medium");
-  add(`What makes ${brand} different from other ${cat}s?`, "brand", "consideration", "homepage positioning", "medium");
+  add(`What makes ${brand} different from other ${cats}?`, "brand", "consideration", "homepage positioning", "medium");
   add(`Is ${brand} good for ${primary}?`, "brand", "decision", "service page", "high");
   add(`${brand} pricing`, "brand", "decision", "pricing page", "high");
   add(`${brand} opening hours and availability`, "brand", "decision", "contact page", "low");
@@ -184,7 +200,7 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   add(`Independent ${cat} vs franchise${inLoc}`, "comparison", "consideration", "buyer's guide", "low");
   add(`Should I choose the cheapest ${cat} quote?`, "comparison", "consideration", "pricing FAQ", "medium");
   add(`What are the alternatives to hiring a ${cat}?`, "alternatives", "awareness", "DIY vs professional guide", "low");
-  add(`Other ${cat}s similar to ${brand}`, "alternatives", "consideration", "strong brand and About pages", "low");
+  add(`Other ${cats} similar to ${brand}`, "alternatives", "consideration", "strong brand and About pages", "low");
   add(`Is there a better option than ${brand} for ${primary}?`, "alternatives", "decision", "service page with proof", "medium");
   add(`How much should ${primary} cost${inLoc} in 2026?`, "informational", "consideration", "pricing guide", "high");
   add(`Beginner's guide to ${primary}`, "informational", "awareness", "pillar guide", "medium");
@@ -195,7 +211,7 @@ export function buildQueryUniverse(input: QueryUniverseInput): GeoQuery[] {
   add(`Can ${primary} be done in stages to spread the cost?`, "problem-aware", "consideration", "pricing FAQ", "low");
   add(`Types of ${primary} explained`, "category", "awareness", "category explainer", "medium");
   add(`${cat} categories: what is the difference between them?`, "category", "awareness", "category explainer", "low");
-  add(`Best-rated ${cat}s${inLoc} for ${primary}`, "category", "decision", "service page with reviews", "high");
+  add(`Best-rated ${cats}${inLoc} for ${primary}`, "category", "decision", "service page with reviews", "high");
   if (input.isLocal && loc) {
     add(`${primary} ${loc} reviews`, "local", "decision", "location page with reviews", "high");
     add(`Local ${cat} in ${loc} with good reviews`, "local", "decision", "location page", "high");

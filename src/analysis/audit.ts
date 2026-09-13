@@ -1,5 +1,5 @@
 import type { CrawlResult } from "../crawl/crawler";
-import { canonicalKey } from "../crawl/crawler";
+import { canonicalKey, classifyPath } from "../crawl/crawler";
 import { buildEntityMap, type EntityMap } from "./entities";
 import { inferCategory, monitoringPrompts, type GeoQuery } from "./queries";
 import { aggregateRating, analysePageRetrievability, type PageRetrievability } from "./retrievability";
@@ -186,11 +186,44 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
     if (commercialRoles.has(p.role) && ![...outRoles].some((r) => supportingRoles.has(r)) && informational.length > 0) commercialToSupporting.push(`${p.finalUrl} (${roleLabel(p.role)}) links to no supporting guide, FAQ or case study from its body copy.`);
     if (supportingRoles.has(p.role) && ![...outRoles].some((r) => commercialRoles.has(r))) commercialToSupporting.push(`${p.finalUrl} (${roleLabel(p.role)}) never links to a service or product page from its body copy.`);
   }
+  // The homepage is the single strongest internal signal a site has. A homepage
+  // that links to nothing it sells was previously invisible here, because the
+  // check only looked at inbound links to *sampled* pages and a page reached via
+  // the sitemap still counted as linked. Classify every homepage link instead.
+  let homepageLinksToCommercial = true;
+  if (site.home) {
+    const homeCommercialLinks = site.home.parsed.links.filter((l) => {
+      if (!l.internal) return false;
+      if (canonicalKey(l.href) === canonicalKey(site.home!.finalUrl)) return false;
+      return commercialRoles.has(classifyPath(l.href, site.home!.finalUrl));
+    });
+    homepageLinksToCommercial = homeCommercialLinks.length > 0;
+    if (!homepageLinksToCommercial) {
+      hierarchyIssues.push(
+        `The homepage links to no service, product, category, pricing or location page. Of ${site.home.parsed.links.filter((l) => l.internal).length} internal links on it, none point to something the business sells.`,
+      );
+    } else if (homeCommercialLinks.filter((l) => !l.chrome).length === 0) {
+      hierarchyIssues.push("Every link from the homepage to a commercial page sits in the header, footer or navigation. None appear in the body copy, where they would carry topical context.");
+    }
+  }
+
   const deep = site.pages.filter((p) => new URL(p.finalUrl).pathname.split("/").filter(Boolean).length >= 3 && commercialRoles.has(p.role));
   if (deep.length) hierarchyIssues.push(`${deep.length} commercial page(s) sit three or more levels deep: ${deep.slice(0, 3).map((p) => p.finalUrl).join(", ")}.`);
   const ambiguousAnchors = [...anchorCounts.entries()].map(([text, count]) => ({ text, count })).sort((a, b) => b.count - a.count).slice(0, 6);
   const archIssues = orphanLike.length + hierarchyIssues.length + commercialToSupporting.length + (ambiguousAnchors.reduce((n, a) => n + a.count, 0) >= 5 ? 1 : 0);
-  const archRating: Rating = archIssues === 0 ? "Strong" : archIssues <= 3 ? "Moderate" : "Weak";
+  // A homepage that never links to what the business sells is a structural
+  // failure on its own, whatever else the site gets right, so it caps the rating.
+  const archRating: Rating = !homepageLinksToCommercial ? "Weak" : archIssues === 0 ? "Strong" : archIssues <= 3 ? "Moderate" : "Weak";
+  if (!homepageLinksToCommercial && site.home) {
+    actions.push({
+      action: "Link the homepage directly to every core service or product page, from the body copy and the main navigation, using the destination's topic as the anchor text.",
+      why: "The homepage carries the most authority and is the page assistants and crawlers reach first. If it never points at what you sell, those pages are reachable only through the sitemap, which passes no topical context and no prominence.",
+      impact: 3,
+      visibility: 3,
+      ease: 3,
+      evidence: `homepage has ${site.home.parsed.links.filter((l) => l.internal).length} internal links, none to a service, product, category, pricing or location page`,
+    });
+  }
   if (commercialToSupporting.length) actions.push({ action: "Link every service page to its supporting guides and case studies from body copy, and every guide back to the service it supports, using descriptive anchors.", why: "Commercial and supporting pages that reference each other read as one topic cluster; isolated pages read as thin.", impact: 2, visibility: 2, ease: 3, evidence: commercialToSupporting.slice(0, 2).join(" | ") });
   if (orphanLike.length) actions.push({ action: `Add contextual internal links to ${orphanLike.length} orphan-like page(s).`, why: "Pages reachable only via the sitemap get crawled but carry no relevance signal from the rest of the site.", impact: 2, visibility: 2, ease: 3, evidence: orphanLike.slice(0, 3).map((o) => o.url).join(", ") });
   if (ambiguousAnchors.reduce((n, a) => n + a.count, 0) >= 5) actions.push({ action: "Replace generic anchors (\"learn more\", \"click here\") with the destination page's topic.", why: "Anchor text is how systems infer what a linked page is about; generic anchors waste that signal.", impact: 1, visibility: 2, ease: 3, evidence: ambiguousAnchors.map((a) => `"${a.text}" x${a.count}`).join(", ") });

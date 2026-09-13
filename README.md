@@ -150,6 +150,18 @@ const result = await client.callTool({ name: "audit_ai_visibility", arguments: {
 
 Legacy 2025-era clients that POST plain JSON-RPC to `/mcp` are also served through the SDK's stateless compatibility lane.
 
+## Known extraction limits
+
+The entity extraction is deterministic pattern matching over visible copy and JSON-LD, not a language model, so it trades recall for precision. Specific guards, each added after a real site produced a wrong answer:
+
+- People must look like human names. Acronyms (`GBP`, `SEO`, `MBA`), stopwords and the brand's own words are rejected, and only the name-then-role order is read from prose, because "specialist Jane Lee" is not how English names people.
+- `EducationalOrganization` nodes are excluded from brand candidates. On a consultancy site that node is the founder's university, and treating it as a brand produced a false "brand name is stated inconsistently" finding.
+- Free-text locations must pass a place test. AI products, crawler names and industry acronyms are frequent capitalised nouns in this sector's copy and were otherwise promoted to service areas.
+- Offerings reject pricing tiers, table cells, multi-sentence text, unbalanced brackets, bare numbers and headlines written as commands. Over-long candidates are dropped rather than truncated mid-word.
+- Page roles match on hyphen boundaries, so `faqs-seo` and `seo-glossary` are read as editorial. Without that, any single-segment slug fell through to a "service" default and editorial pages were counted as commercial.
+
+`test/regressions.test.ts` pins each of these with a reproduction of the original failure.
+
 ## Rating rubrics
 
 All ratings are qualitative (`Strong`, `Moderate`, `Weak`) with deterministic rules. There is no universal "GEO score".

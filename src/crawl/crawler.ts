@@ -80,16 +80,22 @@ export function classifyPath(url: string, homepage: string): PageRole {
   const path = u.pathname.toLowerCase().replace(/\/+$/, "");
   if (!path || path === "" || canonicalKey(url) === canonicalKey(homepage)) return "home";
   if (LEGAL_PATH.test(path)) return "legal";
-  if (/(^|\/)(about|about-us|our-story|team|our-team|who-we-are|meet-the-team|company)(\/|$)/.test(path)) return "about";
-  if (/(^|\/)(contact|contact-us|get-in-touch|enquire|enquiry|quote|get-a-quote|book|booking)(\/|$)/.test(path)) return "contact";
-  if (/(^|\/)(pricing|prices|price-list|plans|packages|rates|costs?)(\/|$)/.test(path)) return "pricing";
-  if (/(^|\/)(faq|faqs|frequently-asked-questions|help|support)(\/|$)/.test(path)) return "faq";
-  if (/(^|\/)(case-stud(y|ies)|results|success-stories|portfolio|projects|our-work|work)(\/|$)/.test(path)) return "case-study";
-  if (/(^|\/)(locations?|areas?-we-serve|service-areas?|suburbs|near-me)(\/|$)/.test(path)) return "location";
+  // Boundaries allow hyphens, so "faqs-seo" and "seo-glossary" are recognised.
+  // Without this, any one-segment slug fell through to the depth-1 "service"
+  // fallback, and editorial pages were counted as things the business sells.
+  const B = (words: string) => new RegExp(`(^|\\/|-)(${words})(\\/|$|-)`);
+  if (B("about|about-us|our-story|team|our-team|who-we-are|meet-the-team|company").test(path)) return "about";
+  if (B("contact|contact-us|get-in-touch|enquire|enquiry|quote|get-a-quote|book|booking").test(path)) return "contact";
+  if (B("pricing|prices|price-list|plans|packages|rates|costs?").test(path)) return "pricing";
+  if (B("faq|faqs|frequently-asked-questions|help|support").test(path)) return "faq";
+  if (B("case-stud(y|ies)|results|success-stories|portfolio|projects|our-work|work").test(path)) return "case-study";
+  if (B("locations?|areas?-we-serve|service-areas?|suburbs|near-me").test(path)) return "location";
+  // Social proof and utility pages: not commercial, not informational articles.
+  if (B("testimonials?|reviews?|client-reviews|feedback|tools?|calculators?|templates?|downloads?|checklists?").test(path)) return "other";
   if (/^\/(blog|news|articles?|guides?|resources|insights|learn|knowledge|academy|library|posts)$/.test(path)) return "hub";
-  if (/(^|\/)(blog|news|articles?|guides?|resources|insights|learn|knowledge|academy|glossary|library)(\/|$)/.test(path)) return "informational";
-  if (/(^|\/)(products?|shop|store|collections?|catalog(ue)?)(\/|$)/.test(path)) return "product";
-  if (/(^|\/)(categor(y|ies)|ranges?|brands?)(\/|$)/.test(path)) return "category";
+  if (B("blog|news|articles?|guides?|resources|insights|learn|knowledge|academy|glossary|glossaries|library|instructions|guidelines|explained|faqs?").test(path)) return "informational";
+  if (B("products?|shop|store|collections?|catalog(ue)?").test(path)) return "product";
+  if (B("categor(y|ies)|ranges?|brands?").test(path)) return "category";
   if (/(^|\/)(services?|solutions|what-we-do|treatments?|practice-areas?|specialt(y|ies)|programs?|courses?|repairs?|installation|removal|cleaning|seo|marketing|design|consulting|lawyer|dentist|plumb|electric|roof|landscap|physio|accounting|bookkeeping)(\/|$|-)/.test(path)) return "service";
   const depth = path.split("/").filter(Boolean).length;
   if (depth === 1) return "service"; // top-level slugs on business sites are usually offerings
