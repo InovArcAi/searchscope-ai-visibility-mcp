@@ -29,7 +29,18 @@ function getHandler(): ReturnType<typeof createMcpHandler> {
         devAllowLoopbackTargets: devLoopback && Boolean(reqUrl && isLoopbackHost(reqUrl.hostname)),
       });
     },
-    { route: "/mcp" },
+    {
+      route: "/mcp",
+      // The SDK's default Origin allow-list only covers localhost and the
+      // endpoint's own workers.dev hostname, so a browser-based MCP client, or
+      // any client at all once this runs on a custom domain, can be rejected
+      // before it reaches a tool. Origin locking is a defence against a web page
+      // driving a *local* server that holds credentials or private data. This
+      // server has neither: it is public, unauthenticated by design, read-only,
+      // and stores nothing between requests, so there is nothing an origin could
+      // steal. Accept any origin and let the SSRF rules do the real work.
+      allowedOriginHostnames: "*",
+    },
   );
   return mcpHandler;
 }
