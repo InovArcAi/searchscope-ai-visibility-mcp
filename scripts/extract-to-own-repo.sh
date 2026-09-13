@@ -33,10 +33,11 @@ git subtree split --prefix="$PREFIX" -b "$BRANCH"
 # leaves an empty working tree on a branch with no commits.
 STAGING="$(mktemp -d)/staging.git"
 git init -q --bare "$STAGING"
-git push -q "$STAGING" "$BRANCH:refs/heads/main"
+git -c push.negotiate=false push -q "$STAGING" "$BRANCH:refs/heads/main"
 git --git-dir="$STAGING" symbolic-ref HEAD refs/heads/main
 
-BUNDLE="$REPO_ROOT/${PREFIX}.bundle"
+# Written beside the repository, not inside it, so it is never committed by accident.
+BUNDLE="$(dirname "$REPO_ROOT")/${PREFIX}.bundle"
 git --git-dir="$STAGING" bundle create "$BUNDLE" --all
 rm -rf "$(dirname "$STAGING")"
 echo "Wrote $BUNDLE"
