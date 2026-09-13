@@ -1,6 +1,7 @@
 import type { CrawlResult } from "../crawl/crawler";
 import { canonicalKey, classifyPath } from "../crawl/crawler";
 import { buildEntityMap, type EntityMap } from "./entities";
+import { buildAnswerFixes, buildLinkFixes, buildOpeningFixes, buildSchemaSnippet, type AnswerFix, type LinkFix, type OpeningFix } from "./fixes";
 import { inferCategory, monitoringPrompts, type GeoQuery } from "./queries";
 import { aggregateRating, analysePageRetrievability, type PageRetrievability } from "./retrievability";
 import { buildSiteModel, COUNTRIES, EVIDENCE_RE, isAmbiguousAnchor, REGIONS, roleLabel, type Rating, type SiteModel } from "./site";
@@ -28,7 +29,14 @@ export interface AuditReport {
   architecture: { rating: Rating; orphanLike: { url: string; role: string; reason: string }[]; hierarchyIssues: string[]; ambiguousAnchors: { text: string; count: number }[]; commercialToSupporting: string[] };
   structuredData: { rating: Rating; typesFound: { type: string; pages: number }[]; omissions: EntityMap["suggestedSchemaTypes"]; issues: string[]; note: string };
   commercialCoverage: { inferredOfferings: string[]; inferredCategory: string; inferredLocations: string[]; likelyIntents: { intent: string; coveredBy: string | null }[]; gaps: string[] };
-  topActions: { rank: number; action: string; why: string; impact: "high" | "medium" | "low"; visibilityImpact: "high" | "medium" | "low"; effort: "low" | "medium" | "high"; evidence: string }[];
+  topActions: { rank: number; action: string; why: string; impact: "high" | "medium" | "low"; visibilityImpact: "high" | "medium" | "low"; effort: "low" | "medium" | "high"; evidence: string; how?: string }[];
+  /** Page-by-page rewrites, quoted current text and a prefilled replacement. */
+  fixes: {
+    openings: OpeningFix[];
+    answers: AnswerFix[];
+    links: LinkFix[];
+    schemaSnippet?: { where: string; jsonLd: string };
+  };
   monitoringPrompts: GeoQuery[];
 }
 
@@ -41,6 +49,8 @@ interface Action {
   visibility: 1 | 2 | 3;
   ease: 1 | 2 | 3;
   evidence: string;
+  /** Concrete instruction: exactly what to change, on which page. */
+  how?: string;
 }
 
 function lvl(n: number): "high" | "medium" | "low" {
@@ -283,11 +293,35 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
   const ecRating: Rating = ecPoints >= 5 ? "Strong" : ecPoints >= 3 ? "Moderate" : "Weak";
   if (entities.ambiguities.some((a) => a.startsWith("Brand name is stated inconsistently"))) actions.push({ action: "Standardise the brand name across schema, og:site_name, title suffix and footer.", why: "Conflicting names split the entity across sources; assistants may treat them as different businesses.", impact: 2, visibility: 3, ease: 3, evidence: site.brandCandidates.filter((b) => b.confidence !== "low").map((b) => b.value).join(" vs ") });
 
+  // Concrete, page-level instructions for the findings that have them.
+  const openingFixes = buildOpeningFixes(site, retr);
+  const answerFixes = buildAnswerFixes(retr);
+  const linkFixes = buildLinkFixes(site);
+  const schemaSnippet = sdRating === "Weak" ? { where: "the homepage, inside a <script type=\"application/ld+json\"> tag", jsonLd: buildSchemaSnippet(site, entities.primaryEntity.type) } : undefined;
+
+  for (const a of actions) {
+    if (/Rewrite the opening paragraph/.test(a.action) && openingFixes[0]) {
+      a.how = openingFixes
+        .slice(0, 3)
+        .map((f) => `${f.url}\n    now: "${f.currentOpening}"\n    use: "${f.suggested}"`)
+        .join("\n  ");
+    } else if (/Fix \d+ question headings/.test(a.action) && answerFixes[0]) {
+      a.how = answerFixes
+        .slice(0, 3)
+        .map((f) => `${f.url} — "${f.question}"\n    now: "${f.currentFirstSentence}"\n    open with: "${f.suggestedOpening}"`)
+        .join("\n  ");
+    } else if (/Link every service page/.test(a.action) && linkFixes[0]) {
+      a.how = linkFixes.slice(0, 4).map((f) => `link ${f.from} to ${f.to} with anchor "${f.suggestedAnchor}"`).join("\n  ");
+    } else if (/JSON-LD to the homepage/.test(a.action) && schemaSnippet) {
+      a.how = `Paste into ${schemaSnippet.where}, replacing every [placeholder]:\n${schemaSnippet.jsonLd}`;
+    }
+  }
+
   // Rank actions: commercial impact, then visibility impact, then ease
   const ranked = actions
     .sort((a, b) => b.impact - a.impact || b.visibility - a.visibility || b.ease - a.ease)
     .slice(0, 10)
-    .map((a, i) => ({ rank: i + 1, action: a.action, why: a.why, impact: lvl(a.impact), visibilityImpact: lvl(a.visibility), effort: effort(a.ease), evidence: a.evidence }));
+    .map((a, i) => ({ rank: i + 1, action: a.action, why: a.why, impact: lvl(a.impact), visibilityImpact: lvl(a.visibility), effort: effort(a.ease), evidence: a.evidence, ...(a.how ? { how: a.how } : {}) }));
 
   // Executive summary
   const ratings = { entityClarity: ecRating, retrievability: retrRating, informationGain: igRating, trust: trustRating, architecture: archRating, structuredData: sdRating };
@@ -337,6 +371,7 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
     structuredData: { rating: sdRating, typesFound: entities.schemaTypesFound, omissions: entities.suggestedSchemaTypes, issues: sdIssues.slice(0, 12), note: "Structured data is not a direct ranking factor. It removes ambiguity about what the entities on a page are; it does not create visibility on its own. FAQPage and HowTo are not recommended (no longer rendered in Google Search)." },
     commercialCoverage: { inferredOfferings: offerings, inferredCategory: category, inferredLocations: strongLocs, likelyIntents: intents, gaps },
     topActions: ranked,
+    fixes: { openings: openingFixes, answers: answerFixes, links: linkFixes, ...(schemaSnippet ? { schemaSnippet } : {}) },
     monitoringPrompts: prompts,
   };
 }

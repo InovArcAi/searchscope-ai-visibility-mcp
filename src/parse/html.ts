@@ -133,10 +133,14 @@ export async function parsePage(url: string, html: string, truncated = false): P
   const authorCaptures: string[] = [];
   let authorOpen = 0;
 
+  // Accessibility skip links are the first text in the DOM on many templates.
+  // Counted as main copy they became the page's "opening paragraph".
+  const SKIP_LINK = /^skip (?:to|straight to) (?:main |the )?(?:content|navigation|nav)$/i;
+
   const flush = (kind: BlockKind = currentKind): void => {
     const text = clean(decodeEntities(buffer));
     buffer = "";
-    if (!text) return;
+    if (!text || SKIP_LINK.test(text)) return;
     page.blocks.push({ kind, text, chrome: chromeDepth > 0 });
   };
 

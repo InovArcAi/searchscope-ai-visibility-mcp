@@ -32,7 +32,8 @@ Returns Markdown text plus `structuredContent` with ten sections:
 | F. Internal linking / architecture | Orphan-like pages, hierarchy issues, ambiguous anchors, missing commercial-to-supporting links |
 | G. Structured data | Schema types found, relevant omissions, issues; explicitly notes schema is not a ranking factor |
 | H. Commercial query coverage | Inferred offerings, category, locations, likely intents with the page that covers each, gaps |
-| I. Top 10 actions | Ranked by commercial impact, then AI/search visibility impact, then ease, each with evidence |
+| I. Top 10 actions | Ranked by commercial impact, then AI/search visibility impact, then ease, each with evidence and, where one exists, a concrete `how` |
+| I2. Page-by-page rewrites | The offending text quoted verbatim with a prefilled replacement: opening paragraphs, opening sentences for question headings, internal links to add with suggested anchor text, and a paste-ready JSON-LD block |
 | J. 20 prompts to monitor | Balanced across informational, commercial, comparison, recommendation, alternatives, brand, category, trust and local (only when a location is detected) |
 
 ### `extract_site_entities`
@@ -149,6 +150,14 @@ const result = await client.callTool({ name: "audit_ai_visibility", arguments: {
 ```
 
 Legacy 2025-era clients that POST plain JSON-RPC to `/mcp` are also served through the SDK's stateless compatibility lane.
+
+## How fixes are generated
+
+Section I2 exists because "rewrite the opening paragraph" is a diagnosis, not a task. Every fix quotes the current text verbatim and returns a replacement built only from what the crawl observed: the page's own H1 as the subject, the detected brand, the detected primary service area, and a price or turnaround found in that page's copy. Anything not observed is left as a visible `[placeholder]`.
+
+The tool will not write a claim it cannot source. A fabricated price or a made-up client type in a template is worse than a blank, because a blank gets filled and an invented fact gets published. Two guards follow from that: a figure inside a market statistic ("$402.8 billion") is never reused as pricing, and a duration is only reused as a turnaround when it is measured in days or longer, so "30-minute strategy call" cannot become "typical turnaround is 30-minute".
+
+Internal link suggestions name the source page, the destination, and anchor text taken from the destination's own H1, following the house rule of naming the destination's topic rather than its format. No destination is suggested more than twice, since one popular page proposed as the answer to every service page is noise.
 
 ## Known extraction limits
 

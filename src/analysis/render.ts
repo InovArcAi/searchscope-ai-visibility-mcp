@@ -80,8 +80,48 @@ export function renderAudit(r: AuditReport): string {
   list(r.commercialCoverage.gaps);
   push();
   push("## I. Top recommended actions");
-  for (const a of r.topActions) push(`${a.rank}. ${a.action} [impact ${a.impact}, visibility ${a.visibilityImpact}, effort ${a.effort}] ${a.why} Evidence: ${a.evidence}`);
+  for (const a of r.topActions) {
+    push(`${a.rank}. ${a.action} [impact ${a.impact}, visibility ${a.visibilityImpact}, effort ${a.effort}] ${a.why} Evidence: ${a.evidence}`);
+    if (a.how) push(`   How: ${a.how}`);
+  }
   push();
+  const f = r.fixes;
+  if (f.openings.length || f.answers.length || f.links.length || f.schemaSnippet) {
+    push("## I2. Page-by-page rewrites");
+    push("Current text is quoted verbatim. Anything in [square brackets] is a blank for you to fill: the auditor will not invent a fact it did not read on the page.");
+    for (const o of f.openings) {
+      push();
+      push(`### Opening paragraph: ${o.url}`);
+      push(`H1: ${o.h1}`);
+      push(`Problem: ${o.problem}`);
+      push(`Currently: "${o.currentOpening}"`);
+      push(`Replace with: "${o.suggested}"`);
+    }
+    if (f.answers.length) {
+      push();
+      push("### Question headings that do not answer");
+      for (const a of f.answers) {
+        push(`- ${a.url} — "${a.question}"`);
+        push(`  Problem: ${a.problem}`);
+        push(`  Currently opens: "${a.currentFirstSentence}"`);
+        push(`  Open with: "${a.suggestedOpening}"`);
+      }
+    }
+    if (f.links.length) {
+      push();
+      push("### Internal links to add");
+      for (const l of f.links) push(`- On ${l.from}, link to ${l.to} with anchor text "${l.suggestedAnchor}". ${l.why}`);
+    }
+    if (f.schemaSnippet) {
+      push();
+      push("### Structured data to paste");
+      push(`Add to ${f.schemaSnippet.where}, replacing every [placeholder]:`);
+      push("```json");
+      push(f.schemaSnippet.jsonLd);
+      push("```");
+    }
+    push();
+  }
   push("## J. 20 AI search prompts to monitor");
   for (const q of r.monitoringPrompts) push(`- ${q.query} (${q.intent}, ${q.buyerStage}, ${q.commercialPriority} priority; ideal page: ${q.idealPageType})`);
   push(REPORT_FOOTER);

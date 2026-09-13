@@ -28,12 +28,19 @@ export interface QaPassage {
   answerWords: number;
   verdict: "direct" | "thin" | "vague" | "split" | "missing";
   reason: string;
+  /** The sentence a reader (or an answer engine) actually meets first. */
+  firstSentence: string;
+  /** A concrete opening sentence to replace it with, derived from the question. */
+  suggestedOpening: string;
 }
 
 export interface PageRetrievability {
   url: string;
   rating: Rating;
   words: number;
+  h1: string;
+  /** The page's actual first main-copy passage, quoted so the fix is obvious. */
+  openingText: string;
   hasDefinition: boolean;
   definition?: string;
   questionHeadings: number;
@@ -60,7 +67,42 @@ function countSpecifics(text: string): number {
 
 function isQuestionHeading(text: string): boolean {
   const t = text.trim();
-  return t.endsWith("?") || (QUESTION_START.test(t) && countWords(t) >= 3);
+  if (t.endsWith("?")) return true;
+  // "What clients say." is a section label, not a question. Punctuation is the
+  // clearest signal a writer has already decided it is a statement.
+  if (/[.!]$/.test(t)) return false;
+  return QUESTION_START.test(t) && countWords(t) >= 3;
+}
+
+/**
+ * Turn a question heading into the opening sentence its answer should have.
+ * "How much does X cost?" becomes "X costs ...", so the writer is handed the
+ * shape rather than told to "answer directly".
+ */
+export function suggestedAnswerOpening(question: string): string {
+  const q = question.trim().replace(/\?+$/, "");
+  let m: RegExpExecArray | null;
+  if ((m = /^how much (?:does|do|is|are)\s+(.+?)(?:\s+cost)?$/i.exec(q))) return `${capitaliseFirst(m[1] ?? "")} costs [range] ...`;
+  if ((m = /^how long (?:does|do|will)\s+(.+?)(?:\s+take)?$/i.exec(q))) return `${capitaliseFirst(m[1] ?? "")} takes [timeframe] ...`;
+  if ((m = /^(?:what is|what's|what are)\s+(.+)$/i.exec(q))) return `${capitaliseFirst(m[1] ?? "")} is [definition in one sentence] ...`;
+  if ((m = /^what (?:causes|caused)\s+(.+)$/i.exec(q))) return `${capitaliseFirst(m[1] ?? "")} is usually caused by [cause] ...`;
+  if ((m = /^why\s+(?:is|are|does|do)\s+(.+)$/i.exec(q))) return `${capitaliseFirst(m[1] ?? "")} because [reason] ...`;
+  if ((m = /^(?:do|does|can|will|should|is|are|has|have)\s+(?:you|we|i|my|your)?\s*(.+)$/i.exec(q))) return `Yes (or no) — [direct answer], because [reason] ...`;
+  if ((m = /^(?:who|which)\s+(.+)$/i.exec(q))) return `[Direct answer] ${m[1] ?? ""} ...`;
+  if ((m = /^where\s+(.+)$/i.exec(q))) return `[Place] ...`;
+  if ((m = /^when\s+(.+)$/i.exec(q))) return `[Time or trigger] ...`;
+  if ((m = /^how (?:do|does|can|to)\s+(.+)$/i.exec(q))) return `To ${m[1] ?? ""}, [first concrete step] ...`;
+  return `[Answer the heading in the first sentence, then give the specifics] ...`;
+}
+
+function capitaliseFirst(s: string): string {
+  const t = s.trim();
+  return t ? t.charAt(0).toUpperCase() + t.slice(1) : t;
+}
+
+function firstSentenceOf(text: string): string {
+  const first = text.trim().split(/(?<=[.!?])\s/)[0] ?? "";
+  return first.length > 200 ? `${first.slice(0, 197)}...` : first;
 }
 
 function keywordsOf(text: string): string[] {
@@ -80,11 +122,19 @@ export function analysePageRetrievability(page: ParsedPage): PageRetrievability 
   let hasDefinition = false;
   let definition: string | undefined;
   const h1Index = main.findIndex((b) => b.kind === "h1");
+  const h1 = h1Index === -1 ? "" : (main[h1Index] as Block).text;
   const startAt = h1Index === -1 ? 0 : h1Index + 1;
   const early = main.slice(startAt, startAt + 4).filter((b) => b.kind === "p" || b.kind === "li" || b.kind === "quote");
+  const firstPassage = early[0]?.text ?? "";
+  const openingText = firstPassage.length > 240 ? `${firstPassage.slice(0, 237)}...` : firstPassage;
   for (const b of early) {
     const w = countWords(b.text);
-    if (w >= 20 && /\b(is|are|provides?|offers?|helps?|specialis(?:es|ing)|delivers?|means|refers to|we (?:are|provide|offer|help|deliver|build|design|repair|install|treat|represent)|our (?:team|clinic|studio|firm|company|practice))\b/i.test(b.text)) {
+    // A positioning sentence is "<subject> <verb> <what, for whom>". The verb
+    // list was previously so narrow that "Search Scope runs Google Maps SEO for
+    // Australian local businesses" was reported as having no definition, which
+    // made the tool's top recommendation wrong on a page that was already fine.
+    const DEFINITION_VERB = /\b(is|are|was|were|means|refers to|provides?|offers?|helps?|delivers?|runs?|works?|handles?|manages?|builds?|creates?|designs?|develops?|repairs?|installs?|removes?|restores?|recovers?|fixes|treats?|represents?|supplies|sells?|serves?|supports?|covers?|includes?|specialis(?:es|ing)|special(?:izes|izing)|focus(?:es|ing)? on|takes? care of|looks? after)\b/i;
+    if (w >= 20 && DEFINITION_VERB.test(b.text)) {
       hasDefinition = true;
       definition = b.text.length > 220 ? `${b.text.slice(0, 217)}...` : b.text;
       break;
@@ -127,7 +177,15 @@ export function analysePageRetrievability(page: ParsedPage): PageRetrievability 
       verdict = "direct";
       reason = echoes ? "Opens with a sentence that restates and answers the question." : "Answer is substantive and concrete.";
     }
-    qa.push({ question: b.text, answer: answer.length > 260 ? `${answer.slice(0, 257)}...` : answer, answerWords, verdict, reason });
+    qa.push({
+      question: b.text,
+      answer: answer.length > 260 ? `${answer.slice(0, 257)}...` : answer,
+      answerWords,
+      verdict,
+      reason,
+      firstSentence: firstSentenceOf(following[0] ?? ""),
+      suggestedOpening: suggestedAnswerOpening(b.text),
+    });
   }
   const questionHeadings = qa.length;
   const directAnswers = qa.filter((q) => q.verdict === "direct").length;
@@ -155,7 +213,7 @@ export function analysePageRetrievability(page: ParsedPage): PageRetrievability 
   else if (hasDefinition && specificityPer100 >= 1.5 && fragmentationPct < 45 && qaOk) rating = "Strong";
   else rating = "Moderate";
 
-  return { url: page.url, rating, words, hasDefinition, definition, questionHeadings, directAnswers, specificityPer100, fragmentationPct, genericHeadings: genericHeadings.slice(0, 6), qa: qa.slice(0, 12), issues: issues.slice(0, 8) };
+  return { url: page.url, rating, words, h1, openingText, hasDefinition, definition, questionHeadings, directAnswers, specificityPer100, fragmentationPct, genericHeadings: genericHeadings.slice(0, 6), qa: qa.slice(0, 12), issues: issues.slice(0, 8) };
 }
 
 export function aggregateRating(ratings: Rating[]): Rating {
