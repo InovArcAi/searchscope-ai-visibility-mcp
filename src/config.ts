@@ -35,7 +35,6 @@ export const SERVICE_VERSION = "1.0.0";
 export const PUBLISHER = "Search Scope";
 export const PUBLISHER_URL = "https://searchscope.com.au/";
 export const PUBLISHER_CONTACT_URL = "https://searchscope.com.au/contact/";
-export const PUBLISHER_LOGO_URL = "https://searchscope.com.au/logo-horizontal.png";
 export const PUBLISHER_LOCATION = "Perth, Western Australia";
 
 /**

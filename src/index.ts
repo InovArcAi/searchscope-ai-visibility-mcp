@@ -1,5 +1,6 @@
 import { createMcpHandler } from "agents/mcp/server";
-import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_LOGO_URL, PUBLISHER_URL, SERVICE_NAME, SERVICE_VERSION } from "./config";
+import { decodeBase64, FAVICON_SVG, LOGO_PNG_BASE64 } from "./brand/assets";
+import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_NAME, SERVICE_VERSION } from "./config";
 import { createServer } from "./mcp/server";
 
 interface Env {
@@ -60,7 +61,7 @@ function landingHtml(origin: string): string {
 <title>${SERVICE_NAME} by ${PUBLISHER}</title>
 <meta name="description" content="Free MCP server from ${PUBLISHER}. Audit any public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities from inside Claude or any MCP client.">
 <meta name="robots" content="index, follow">
-<link rel="icon" href="https://searchscope.com.au/favicon.svg" type="image/svg+xml">
+<link rel="icon" href="/favicon.svg" type="image/svg+xml">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
 <style>
@@ -104,7 +105,7 @@ a{color:var(--teal)}a:hover{color:#fff}
 </style></head>
 <body>
 <header><div class="wrap">
-<a href="${PUBLISHER_URL}"><img src="${PUBLISHER_LOGO_URL}" alt="${PUBLISHER}" width="180" height="34"></a>
+<a href="${PUBLISHER_URL}"><img src="/logo.png" alt="${PUBLISHER}" width="330" height="51"></a>
 <span class="badge">MCP Server</span>
 </div></header>
 <main class="wrap">
@@ -160,6 +161,7 @@ export default {
             name: SERVICE_NAME,
             publisher: PUBLISHER,
             publisherUrl: PUBLISHER_URL,
+            logoUrl: `${url.origin}/logo.png`,
             version: SERVICE_VERSION,
             description: "Audit websites for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities.",
             mcpEndpoint: `${url.origin}/mcp`,
@@ -173,6 +175,21 @@ export default {
         );
       }
       return new Response(landingHtml(url.origin), { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" } });
+    }
+
+    // Brand assets are served from the Worker itself rather than hotlinked, so
+    // the landing page does not depend on another site staying up. Cached hard:
+    // the bytes only change when the Worker is redeployed.
+    if (url.pathname === "/logo.png") {
+      return new Response(decodeBase64(LOGO_PNG_BASE64), {
+        headers: { ...SECURITY_HEADERS, "content-type": "image/png", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" },
+      });
+    }
+
+    if (url.pathname === "/favicon.svg" || url.pathname === "/favicon.ico") {
+      return new Response(FAVICON_SVG, {
+        headers: { ...SECURITY_HEADERS, "content-type": "image/svg+xml; charset=utf-8", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" },
+      });
     }
 
     if (url.pathname === "/robots.txt") {

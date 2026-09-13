@@ -102,7 +102,7 @@ Plan note: the crawl parses up to 15 HTML pages per call. That comfortably fits 
 
 A custom domain is attached under the Worker's Settings, then Domains & Routes, then Add, then Custom Domain. The zone must already be on the same Cloudflare account; the DNS record and certificate are created automatically. No code or config change is needed: host validation is skipped for non-workers.dev hostnames, and the handler accepts any request origin.
 
-The root URL serves a branded landing page (Search Scope logo, brand palette, tool list, privacy statement and a contact call to action) built from the constants in `src/config.ts`. Every tool response also ends with a short `## About this report` attribution block, defined once as `REPORT_FOOTER` in `src/config.ts` so the wording stays consistent across all three tools. Tests assert both are present, so removing them fails the suite rather than silently shipping an unbranded build.
+The root URL serves a branded landing page (Search Scope logo, brand palette, tool list, privacy statement and a contact call to action) built from the constants in `src/config.ts`. The logo and favicon are embedded in the Worker (`src/brand/assets.ts`) and served from `/logo.png` and `/favicon.svg`, not hotlinked, so the page does not depend on another site staying up. Regenerate that file from the Search Scope site repository's `public/` directory if the brand mark changes. Every tool response also ends with a short `## About this report` attribution block, defined once as `REPORT_FOOTER` in `src/config.ts` so the wording stays consistent across all three tools. Tests assert both are present, so removing them fails the suite rather than silently shipping an unbranded build.
 
 ## 7. Example prompts
 

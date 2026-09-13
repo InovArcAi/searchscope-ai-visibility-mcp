@@ -37,16 +37,31 @@ describe("HTTP surface", () => {
     // branding (logo, publisher name, contact call to action) must survive edits.
     expect(text).toMatch(/Nothing is stored/i);
     expect(text).toContain("Search Scope AI Visibility Auditor");
-    expect(text).toContain("https://searchscope.com.au/logo-horizontal.png");
+    expect(text).toContain('src="/logo.png"');
     expect(text).toContain("https://searchscope.com.au/contact/");
     expect(text).toContain("Perth, Western Australia");
     const json = await SELF.fetch(`${BASE}/`, { headers: { accept: "application/json" } });
-    const body = (await json.json()) as { mcpEndpoint: string; tools: { name: string }[]; publisher: string };
+    const body = (await json.json()) as { mcpEndpoint: string; tools: { name: string }[]; publisher: string; privacy: string; logoUrl: string };
     expect(body.mcpEndpoint).toBe(`${BASE}/mcp`);
     expect(body.tools.map((t) => t.name)).toEqual(["audit_ai_visibility", "extract_site_entities", "generate_geo_query_universe"]);
     expect(body.publisher).toBe("Search Scope");
     expect(body.privacy).toMatch(/not stored/);
+    expect(body.logoUrl).toBe(`${BASE}/logo.png`);
   });
+  it("serves its own brand assets rather than hotlinking them", async () => {
+    const logo = await SELF.fetch(`${BASE}/logo.png`);
+    expect(logo.status).toBe(200);
+    expect(logo.headers.get("content-type")).toBe("image/png");
+    const bytes = new Uint8Array(await logo.arrayBuffer());
+    expect(bytes.length).toBeGreaterThan(2000);
+    // PNG magic number, so a corrupted base64 payload fails here.
+    expect(Array.from(bytes.slice(0, 4))).toEqual([0x89, 0x50, 0x4e, 0x47]);
+    const icon = await SELF.fetch(`${BASE}/favicon.svg`);
+    expect(icon.status).toBe(200);
+    expect(icon.headers.get("content-type")).toContain("image/svg+xml");
+    expect(await icon.text()).toContain("<svg");
+  });
+
   it("404s unknown paths and rejects oversized MCP bodies", async () => {
     expect((await SELF.fetch(`${BASE}/nope`)).status).toBe(404);
     const big = await SELF.fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", "content-length": "99999999" }, body: "{}" });
