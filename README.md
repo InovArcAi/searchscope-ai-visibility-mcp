@@ -168,6 +168,10 @@ All ratings are qualitative (`Strong`, `Moderate`, `Weak`) with deterministic ru
 - Native `HTMLRewriter` for parsing (no JavaScript execution, streaming, no third-party HTML parser)
 - `@cloudflare/vitest-pool-workers` + Vitest 4 for tests
 
+## Provenance
+
+This project was developed inside the `searchscope` site repository under `ai-visibility-mcp/` and split out into its own repository with `git subtree split`, so the commit history is preserved. `scripts/extract-to-own-repo.sh` reproduces that split and can also emit a portable git bundle, which is how the code moves between machines without needing access to both repositories at once.
+
 ## Licence
 
 MIT. See `LICENSE`.
