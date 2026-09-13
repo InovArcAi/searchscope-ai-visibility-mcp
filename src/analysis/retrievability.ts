@@ -67,12 +67,22 @@ function countSpecifics(text: string): number {
 
 function isQuestionHeading(text: string): boolean {
   const t = text.trim();
+  // "NEED IT SORTED?" is a call-to-action band, question mark and all. A real
+  // question carries topical words, not just function words. Checked before the
+  // question mark, or the CTA slips straight through.
+  const STOPWORDS = /^(what|how|why|when|where|which|who|can|could|do|does|did|is|are|should|will|would|has|have|need|want|got|ready|keen|the|a|an|it|you|your|we|our|us|me|my|i|to|for|of|in|on|at|and|or|but|so|be|been|get|this|that|with|about|from|up|out|off|now|yet|still|just|more|sorted|done|fixed|help|helped|today)$/i;
+  const contentWords = t
+    .replace(/[^\w\s'\u2019-]/g, " ")
+    .split(/\s+/)
+    .filter((w) => w.length > 1 && !STOPWORDS.test(w));
+  if (contentWords.length < 2) return false;
   if (t.endsWith("?")) return true;
   // "What clients say." is a section label, not a question. Punctuation is the
   // clearest signal a writer has already decided it is a statement.
   if (/[.!]$/.test(t)) return false;
   return QUESTION_START.test(t) && countWords(t) >= 3;
 }
+
 
 /**
  * Turn a question heading into the opening sentence its answer should have.
@@ -134,7 +144,17 @@ export function analysePageRetrievability(page: ParsedPage): PageRetrievability 
     // Australian local businesses" was reported as having no definition, which
     // made the tool's top recommendation wrong on a page that was already fine.
     const DEFINITION_VERB = /\b(is|are|was|were|means|refers to|provides?|offers?|helps?|delivers?|runs?|works?|handles?|manages?|builds?|creates?|designs?|develops?|repairs?|installs?|removes?|restores?|recovers?|fixes|treats?|represents?|supplies|sells?|serves?|supports?|covers?|includes?|specialis(?:es|ing)|special(?:izes|izing)|focus(?:es|ing)? on|takes? care of|looks? after)\b/i;
-    if (w >= 20 && DEFINITION_VERB.test(b.text)) {
+    // "We're a Canberra-based handyman team" is a positioning sentence, but the
+    // contraction hides the verb, so expand them before testing.
+    const expanded = b.text
+      .replace(/\b(we|you|they)['’]re\b/gi, "$1 are")
+      .replace(/\b(it|he|she|that|this|there|who)['’]s\b/gi, "$1 is")
+      .replace(/\b(i)['’]m\b/gi, "$1 am");
+    // 20 words is the bar for a third-person definition. A first-person
+    // positioning sentence does the same job in fewer words, so it clears a
+    // lower one.
+    const firstPerson = /\b(we|our|us)\b/i.test(expanded);
+    if ((w >= 20 || (w >= 14 && firstPerson)) && DEFINITION_VERB.test(expanded)) {
       hasDefinition = true;
       definition = b.text.length > 220 ? `${b.text.slice(0, 217)}...` : b.text;
       break;

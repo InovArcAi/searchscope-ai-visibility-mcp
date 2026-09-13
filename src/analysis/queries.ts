@@ -28,9 +28,25 @@ const INTENT_ORDER: QueryIntent[] = ["commercial", "recommendation", "local", "c
  * Pluralise a category noun. "SEO agency" becomes "SEO agencies", not the
  * "seo agencys" that appeared in generated prompts.
  */
+const IRREGULAR_PLURALS: Record<string, string> = {
+  man: "men",
+  woman: "women",
+  person: "people",
+  child: "children",
+  tooth: "teeth",
+  foot: "feet",
+};
+
 export function pluralise(noun: string): string {
   const words = noun.trim().split(/\s+/);
   const last = words[words.length - 1] ?? "";
+  // "handyman" pluralises as "handymen", not "handymans".
+  for (const [singular, plural] of Object.entries(IRREGULAR_PLURALS)) {
+    if (last.toLowerCase().endsWith(singular)) {
+      const stem = last.slice(0, last.length - singular.length);
+      return [...words.slice(0, -1), stem + plural].join(" ");
+    }
+  }
   let plural: string;
   if (/[^aeiou]y$/i.test(last)) plural = `${last.slice(0, -1)}ies`;
   else if (/(s|x|z|ch|sh)$/i.test(last)) plural = `${last}es`;
@@ -53,8 +69,14 @@ export function serviceToPhrase(service: string): string {
 
 /** Infer a category noun ("plumber", "SEO agency") from services and brand copy. */
 export function inferCategory(site: SiteModel): string {
-  const text = `${site.home?.parsed.title ?? ""} ${site.home?.parsed.metaDescription ?? ""} ${site.home?.parsed.headings.h1.join(" ") ?? ""} ${site.offerings.map((o) => o.value).join(" ")}`.toLowerCase();
+  // The brand name, page title and meta description describe the business.
+  // The offerings list describes individual jobs, and a handyman who lists
+  // gutter cleaning and pressure washing was being called a cleaning company.
+  // Identity text is therefore matched first, on its own.
+  const identity = `${site.brand.value} ${site.home?.parsed.title ?? ""} ${site.home?.parsed.metaDescription ?? ""}`.toLowerCase();
+  const text = `${identity} ${site.home?.parsed.headings.h1.join(" ") ?? ""} ${site.offerings.map((o) => o.value).join(" ")}`.toLowerCase();
   const pairs: [RegExp, string][] = [
+    [/handy\s?man|handyperson|odd jobs|home maintenance|property maintenance/, "handyman"],
     [/\bseo\b|search engine optimi/, "SEO agency"],
     [/digital marketing/, "digital marketing agency"],
     [/web design|website design/, "web design agency"],
@@ -82,7 +104,32 @@ export function inferCategory(site: SiteModel): string {
     [/camper|caravan|4wd|hire/, "hire company"],
     [/software|saas|platform|app\b/, "software company"],
     [/shop|store|buy|products/, "online store"],
+    [/tiling|tiler/, "tiler"],
+    [/fencing|fencer/, "fencing contractor"],
+    [/glazier|glass repair/, "glazier"],
+    [/locksmith/, "locksmith"],
+    [/carpet/, "carpet cleaner"],
+    [/window clean/, "window cleaner"],
+    [/gardening|lawn|mowing/, "gardener"],
+    [/arborist|tree (?:lopping|removal|service)/, "arborist"],
+    [/carpenter|carpentry|cabinet/, "carpenter"],
+    [/painter|painting/, "painter"],
+    [/concreter|concreting/, "concreter"],
+    [/paving|paver/, "paving contractor"],
+    [/welding|welder|fabricat/, "welder"],
+    [/appliance repair/, "appliance repair service"],
+    [/tutor|tuition/, "tutor"],
+    [/photograph/, "photographer"],
+    [/florist/, "florist"],
+    [/caterer|catering/, "caterer"],
+    [/podiatr/, "podiatrist"],
+    [/optometr/, "optometrist"],
+    [/veterinar|\bvet\b/, "veterinary clinic"],
+    [/childcare|day ?care|early learning/, "childcare centre"],
+    [/aged care|home care|disability support|ndis/, "care provider"],
   ];
+  // Identity text wins over the job list.
+  for (const [re, cat] of pairs) if (re.test(identity)) return cat;
   for (const [re, cat] of pairs) if (re.test(text)) return cat;
   const first = site.offerings[0]?.value;
   return first ? `${serviceToPhrase(first)} provider` : "business";

@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest";
 import { classifyPath } from "../src/crawl/crawler";
 import { buildSiteModel } from "../src/analysis/site";
 import { buildAudit } from "../src/analysis/audit";
-import { pluralise } from "../src/analysis/queries";
+import { inferCategory, pluralise } from "../src/analysis/queries";
 import { parsePage } from "../src/parse/html";
 import type { CrawlResult, CrawledPage, PageRole } from "../src/crawl/crawler";
 
@@ -167,6 +167,8 @@ describe("query wording", () => {
     expect(pluralise("dentist")).toBe("dentists");
     expect(pluralise("bus")).toBe("buses");
     expect(pluralise("coach")).toBe("coaches");
+    expect(pluralise("handyman")).toBe("handymen");
+    expect(pluralise("salesperson")).toBe("salespeople");
   });
 });
 
@@ -259,5 +261,91 @@ describe("actionable fixes", () => {
     for (const l of links) counts.set(l.to, (counts.get(l.to) ?? 0) + 1);
     for (const [to, n] of counts) expect(n, `${to} suggested ${n} times`).toBeLessThanOrEqual(2);
     expect(links.every((l) => l.suggestedAnchor.split(/\s+/).length >= 2)).toBe(true);
+  });
+});
+
+describe("trade sites", () => {
+  it("names the category from the business, not from the job list", async () => {
+    // A handyman who lists gutter cleaning and pressure washing was being
+    // called a cleaning company, which then wrote every monitoring prompt wrong.
+    const home = doc(
+      "Handyman Canberra | Bright Spark Handy Man Services",
+      `<h1>Bright Spark Handy Man Services</h1><p>We take on home repairs and maintenance for households across Canberra, usually within 3 days.</p>`,
+      '<meta property="og:site_name" content="Bright Spark Handy Man Services"><meta name="description" content="Handyman in Canberra for repairs and maintenance.">',
+    );
+    const svc = (n: string) => doc(n, `<h1>${n}</h1><p>We provide ${n.toLowerCase()} for Canberra homes, booked within 3 days and quoted up front.</p>`);
+    const site = buildSiteModel(crawl(await Promise.all([
+      page(HOME, "home", home),
+      page("https://example-agency.com.au/gutter-cleaning/", "service", svc("Gutter Cleaning")),
+      page("https://example-agency.com.au/pressure-washing/", "service", svc("Pressure Washing")),
+    ])));
+    expect(inferCategory(site)).toBe("handyman");
+  });
+
+  it("reads a suburb landing-page network as places, not as services", async () => {
+    const suburb = (n: string) => doc(`Handyman ${n}`, `<h1>HANDYMAN IN ${n.toUpperCase()}, EVERY SUBURB.</h1><p>We cover ${n} for repairs, assembly and maintenance, usually within 3 days.</p>`);
+    const pages = await Promise.all([
+      page(HOME, "home", doc("Handy Co", "<h1>Handy Co</h1><p>Home repairs and maintenance across Canberra for households and renters.</p>", '<meta property="og:site_name" content="Handy Co">')),
+      page("https://example-agency.com.au/handyman-belconnen/", "service", suburb("Belconnen")),
+      page("https://example-agency.com.au/handyman-gungahlin/", "service", suburb("Gungahlin")),
+      page("https://example-agency.com.au/handyman-woden-valley/", "service", suburb("Woden Valley")),
+      page("https://example-agency.com.au/handyman-prices-canberra/", "pricing", doc("Prices", "<h1>Handyman Prices</h1><p>Our call-out is $89 and most jobs are quoted up front before we start.</p>")),
+    ]);
+    const site = buildSiteModel(crawl(pages));
+    const locs = site.locations.map((l) => l.value);
+    const offers = site.offerings.map((o) => o.value);
+    expect(locs).toEqual(expect.arrayContaining(["Belconnen", "Gungahlin"]));
+    for (const suburbName of ["Belconnen", "Gungahlin", "Woden Valley"]) {
+      expect(offers, `${suburbName} is a place, not a service`).not.toContain(suburbName);
+    }
+    // The pricing page shares the slug prefix but is not a suburb.
+    expect(locs).not.toContain("Prices Canberra");
+  });
+
+  it("drops trailing punctuation and shouty caps from offering names", async () => {
+    const pages = await Promise.all([
+      page(HOME, "home", doc("Handy Co", "<h1>Handy Co</h1><p>Home repairs and maintenance across Canberra for households and renters.</p>", '<meta property="og:site_name" content="Handy Co">')),
+      page("https://example-agency.com.au/repairs/", "service", doc("R", "<h1>HOME REPAIRS</h1><p>We repair doors, windows and walls for Canberra homes within 3 days.</p>")),
+      page("https://example-agency.com.au/handyman/", "service", doc("H", "<h1>Handyman Services, Canberra</h1><p>General handyman work for Canberra households, quoted up front.</p>")),
+    ]);
+    const offers = buildSiteModel(crawl(pages)).offerings.map((o) => o.value);
+    expect(offers).toContain("Home Repairs");
+    expect(offers.some((o) => /[.,;:]$/.test(o)), "no trailing punctuation").toBe(false);
+    expect(offers.some((o) => o === o.toUpperCase() && o.length > 3), "no shouting").toBe(false);
+  });
+});
+
+describe("trade site copy conventions", () => {
+  it("accepts a contraction as a positioning sentence", async () => {
+    const about = doc("About", `<h1>About Us</h1><p>We're a Canberra-based handyman and property maintenance team. Locally operated, fully insured, and straight about what things cost.</p>`);
+    const site = buildSiteModel(crawl(await Promise.all([
+      page(HOME, "home", doc("Handy Co", "<h1>Handy Co</h1><p>Home repairs and maintenance across Canberra for households and renters, usually within three days.</p>", '<meta property="og:site_name" content="Handy Co">')),
+      page("https://example-agency.com.au/about/", "about", about),
+    ])));
+    const { analysePageRetrievability } = await import("../src/analysis/retrievability");
+    const about_ = site.pages.find((p) => p.finalUrl.includes("/about/"))!;
+    expect(analysePageRetrievability(about_.parsed).hasDefinition).toBe(true);
+  });
+
+  it("does not treat a call-to-action band as an unanswered question", async () => {
+    const { analysePageRetrievability } = await import("../src/analysis/retrievability");
+    const parsed = await parsePage(
+      "https://a.com/prices/",
+      doc("Prices", `<h1>Handyman Prices</h1><p>Our call-out is $89 and most jobs are quoted up front before any work starts.</p><h2>NEED IT SORTED?</h2><h2>What does a call-out cost?</h2><p>A call-out is $89, which covers the first half hour on site.</p>`),
+    );
+    const r = analysePageRetrievability(parsed);
+    expect(r.qa.map((q) => q.question)).not.toContain("NEED IT SORTED?");
+    expect(r.qa.map((q) => q.question)).toContain("What does a call-out cost?");
+  });
+
+  it("does not shout the subject back in a suggested rewrite", async () => {
+    const pages = await Promise.all([
+      page(HOME, "home", doc("Handy Co", "<h1>Handy Co</h1><p>Home repairs and maintenance across Canberra for households and renters, usually within three days.</p>", '<meta property="og:site_name" content="Handy Co">')),
+      page("https://example-agency.com.au/services/", "service", doc("S", `<h1>HOME SERVICES.</h1><p>Book now.</p>`)),
+    ]);
+    const fix = buildAudit(crawl(pages)).fixes.openings.find((o) => o.url.includes("/services/"));
+    expect(fix).toBeTruthy();
+    expect(fix!.suggested).toContain("Home Services is");
+    expect(fix!.suggested).not.toContain("HOME SERVICES is");
   });
 });

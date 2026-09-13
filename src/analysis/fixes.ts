@@ -62,10 +62,15 @@ function subjectOf(page: CrawledPage & { parsed: ParsedPage }, site: SiteModel):
   // Only a <title> carries a "Page | Brand" suffix worth stripping. Running an
   // H1 through the same splitter cut "Multi-location SEO" down to "Multi".
   const raw = (h1 ?? stripBrandSuffix(page.parsed.title ?? "", site.brand.value)).trim();
-  const cleaned = raw
+  let cleaned = raw
     .replace(new RegExp(`\\s*[|\\-–—:]\\s*${site.brand.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\s*$`, "i"), "")
     .replace(/[.!]+$/, "")
     .trim();
+  // Display headings are often set in capitals. Shouting the subject back in the
+  // suggested sentence reads as a mistake.
+  if (cleaned.length > 3 && cleaned === cleaned.toUpperCase() && /[A-Z]/.test(cleaned)) {
+    cleaned = cleaned.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+  }
   // A headline written as a full sentence does not slot into "X is ...".
   if (/[.!?]\s/.test(cleaned) || cleaned.split(/\s+/).length > 10) return "[the offer in two or three words]";
   return cleaned || "[what this page is about]";

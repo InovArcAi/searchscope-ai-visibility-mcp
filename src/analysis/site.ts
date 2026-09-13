@@ -329,6 +329,33 @@ export function buildSiteModel(crawl: CrawlResult): SiteModel {
     phrase = phrase.replace(/\s+(We|You|Our|Your|They|It|This|That|The)$/, "").trim();
     if (looksLikePlace(phrase)) pushLoc(phrase, "medium", `"${m[0].slice(0, 40)}" in copy`);
   }
+  // A repeated slug prefix across several pages ("handyman-belconnen",
+  // "handyman-curtin", "handyman-gungahlin") is a suburb landing-page network.
+  // The trailing segment is a place, and without this it was read as a service.
+  const suburbNames = new Set<string>();
+  const prefixCounts = new Map<string, string[]>();
+  for (const p of pages) {
+    const slug = new URL(p.finalUrl).pathname.replace(/\/+$/, "").split("/").filter(Boolean).pop() ?? "";
+    const dash = slug.indexOf("-");
+    if (dash < 2) continue;
+    const prefix = slug.slice(0, dash);
+    const rest = slug.slice(dash + 1);
+    if (!rest || /^\d+$/.test(rest)) continue;
+    prefixCounts.set(prefix, [...(prefixCounts.get(prefix) ?? []), rest]);
+  }
+  for (const [, rests] of prefixCounts) {
+    if (rests.length < 3) continue;
+    for (const rest of rests) {
+      // "handyman-prices-canberra" shares the prefix but is a pricing page, not
+      // a suburb. Commercial modifiers give those away.
+      if (/\b(price|prices|pricing|cost|costs|quote|quotes|rates|service|services|near|me|reviews|guide|faq|cheap|best|emergency|24|hour|hours)\b/i.test(rest.replace(/-/g, " "))) continue;
+      const name = rest.replace(/-/g, " ").replace(/\b[a-z]/g, (c) => c.toUpperCase());
+      if (!looksLikePlace(name)) continue;
+      suburbNames.add(name.toLowerCase());
+      pushLoc(name, "medium", "suburb landing page");
+    }
+  }
+
   const addresses = new Set<string>();
   for (const m of textCorpus.matchAll(AU_ADDRESS_RE)) addresses.add(m[0].replace(/\s+/g, " ").trim());
   for (const a of addresses) {
@@ -360,9 +387,18 @@ export function buildSiteModel(crawl: CrawlResult): SiteModel {
       .filter((w) => w.length > 2 && !/^(the|and|for|with|our|your|services?|solutions?)$/.test(w))
       .map((w) => w.replace(/(ing|ers?|s)$/, ""));
   const pushOffer = (value: string, confidence: Confidence, source: string) => {
-    let v = value.replace(/\s+/g, " ").trim().replace(/[.!]$/, "");
-    v = stripLocationSuffix(stripBrandSuffix(v, brand.value));
-    if (!v || v.length < 3 || /^(home|about|contact|blog|news|faq|faqs|services|products|shop|login|menu|search|more|get a quote|book now|call us|reviews|gallery|pricing|careers|team)$/i.test(v)) return;
+    let v = value.replace(/\s+/g, " ").trim().replace(/[.!,;:]+$/, "");
+    // "HOME REPAIRS" is a real service name shouted in a heading, so title-case
+    // it rather than discarding it.
+    if (v.length > 3 && v === v.toUpperCase() && /[A-Z]/.test(v)) {
+      v = v.toLowerCase().replace(/\b[a-z]/g, (c) => c.toUpperCase());
+    }
+    v = stripLocationSuffix(stripBrandSuffix(v, brand.value)).replace(/[.!,;:]+$/, "").trim();
+    if (!v || v.length < 3 || /^((our|all|the|more|view all|other)\s+)?(home|about|contact|blog|news|faq|faqs|services?|products?|shop|login|menu|search|more|get a quote|book now|call us|reviews|gallery|pricing|careers|team|work|jobs)$/i.test(v)) return;
+    // A suburb is a place the work happens, not the work. Suburb landing pages
+    // are titled with the suburb, and their nav labels are the suburb alone.
+    if (locations.some((l) => l.value.toLowerCase() === v.toLowerCase())) return;
+    if (suburbNames.has(v.toLowerCase())) return;
     // A marketing sentence is not an offering name. Previously these were cut at
     // 70 characters, which shipped names truncated mid-word.
     if (v.length > 70) return;

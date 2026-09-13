@@ -54,7 +54,13 @@ export function buildEntityMap(site: SiteModel): EntityMap {
   if (site.legalName) relationships.push({ subject: brand, predicate: "legal entity", object: site.legalName.value, confidence: site.legalName.confidence, evidence: site.legalName.source });
 
   const ambiguities: string[] = [];
-  const distinctBrands = site.brandCandidates.filter((b) => b.confidence !== "low");
+  // "Polytechnitis" and "Polytechnitis Handy Man Services" are the same
+  // business written short and long, not two competing names. Only genuinely
+  // different names are worth raising.
+  const norm = (v: string) => v.toLowerCase().replace(/[^a-z0-9 ]/g, "").replace(/\s+/g, " ").trim();
+  const distinctBrands = site.brandCandidates
+    .filter((b) => b.confidence !== "low")
+    .filter((b, i, all) => !all.some((other, j) => j < i && (norm(other.value).includes(norm(b.value)) || norm(b.value).includes(norm(other.value)))));
   if (distinctBrands.length > 1) {
     ambiguities.push(`Brand name is stated inconsistently: ${distinctBrands.map((b) => `"${b.value}" (${b.source})`).join(" vs ")}. Pick one canonical name and use it in schema, og:site_name, title suffix and footer.`);
   }

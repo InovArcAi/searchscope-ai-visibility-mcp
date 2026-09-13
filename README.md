@@ -167,6 +167,10 @@ The entity extraction is deterministic pattern matching over visible copy and JS
 - `EducationalOrganization` nodes are excluded from brand candidates. On a consultancy site that node is the founder's university, and treating it as a brand produced a false "brand name is stated inconsistently" finding.
 - Free-text locations must pass a place test. AI products, crawler names and industry acronyms are frequent capitalised nouns in this sector's copy and were otherwise promoted to service areas.
 - Offerings reject pricing tiers, table cells, multi-sentence text, unbalanced brackets, bare numbers and headlines written as commands. Over-long candidates are dropped rather than truncated mid-word.
+- The business category is read from the brand name, title and meta description before the job list, because a handyman who lists gutter cleaning and pressure washing was being called a cleaning company, which then wrote every monitoring prompt wrong.
+- A repeated slug prefix across three or more pages (`handyman-belconnen`, `handyman-gungahlin`) is read as a suburb landing-page network, so the trailing segment becomes a location rather than a service. Slugs carrying a commercial modifier (`handyman-prices-canberra`) are excluded.
+- Definition detection expands contractions and lets a first-person positioning sentence clear a lower word count, since "We're a Canberra-based handyman team" does the same job as a longer third-person one.
+- A heading is only treated as a question when it carries at least two topical words, so a call-to-action band like "NEED IT SORTED?" is not reported as a question with no answer.
 - Page roles match on hyphen boundaries, so `faqs-seo` and `seo-glossary` are read as editorial. Without that, any single-segment slug fell through to a "service" default and editorial pages were counted as commercial.
 
 `test/regressions.test.ts` pins each of these with a reproduction of the original failure.
