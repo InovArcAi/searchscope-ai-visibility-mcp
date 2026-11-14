@@ -5,7 +5,7 @@ import { buildEntityMap } from "../analysis/entities";
 import { buildQueryUniverse, inferCategory } from "../analysis/queries";
 import { renderAudit, renderEntityMap, renderQueries } from "../analysis/render";
 import { buildSiteModel, COUNTRIES, REGIONS } from "../analysis/site";
-import { LIMITS, SERVICE_NAME, SERVICE_VERSION } from "../config";
+import { LIMITS, PUBLISHER_URL, SERVER_INSTRUCTIONS, SERVICE_DESCRIPTION, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "../config";
 import { crawlSite, type CrawlResult } from "../crawl/crawler";
 import { cachedResolver, createDohResolver, normaliseTargetUrl, TargetError, type TargetPolicy } from "../security/url";
 
@@ -119,7 +119,20 @@ async function crawlFor(url: string, maxPages: number | undefined, deps: ServerD
  * written for the model: when to use, what it does, what it does not do.
  */
 export function createServer(deps: ServerDeps = {}): McpServer {
-  const server = new McpServer({ name: SERVICE_NAME, version: SERVICE_VERSION });
+  const server = new McpServer(
+    {
+      name: SERVICE_NAME,
+      title: SERVICE_TITLE,
+      version: SERVICE_VERSION,
+      description: SERVICE_DESCRIPTION,
+      websiteUrl: PUBLISHER_URL,
+      icons: [
+        { src: `${SERVICE_ORIGIN}/icon.png`, mimeType: "image/png", sizes: ["512x512"] },
+        { src: `${SERVICE_ORIGIN}/favicon.svg`, mimeType: "image/svg+xml", sizes: ["any"] },
+      ],
+    },
+    { instructions: SERVER_INSTRUCTIONS },
+  );
 
   server.registerTool(
     "audit_ai_visibility",
