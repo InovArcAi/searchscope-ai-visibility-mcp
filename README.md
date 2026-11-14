@@ -116,7 +116,7 @@ The root URL serves a branded landing page (Search Scope logo, brand palette, to
 
 The Worker must not be usable as an open proxy. Every URL it fetches (initial target, each redirect hop, each discovered page, sitemaps, robots.txt) goes through the same gate:
 
-1. Syntax: only `http`/`https`; credentials in the URL rejected; only default ports; hostnames only (IP literals rejected, including obfuscated forms the URL parser normalises).
+1. Syntax: only `http`/`https`; credentials in the URL rejected; only default ports (checked on the initial target, every redirect hop, every discovered page and every sitemap URL); hostnames only (IP literals rejected, including obfuscated forms the URL parser normalises).
 2. Hostname deny-list: `localhost`, single-label names, `.local`, `.internal`, `.home.arpa`, `.arpa`, `.onion`, `metadata.google.internal` and similar.
 3. IP deny-list: loopback, RFC1918, CGNAT (100.64/10), link-local, multicast, reserved, TEST-NETs, unique-local and link-local IPv6, IPv4-mapped/NAT64/6to4/Teredo embeddings, and known cloud metadata addresses.
 4. DNS resolution through Cloudflare DNS-over-HTTPS with every A/AAAA answer checked against the deny-list. Resolution failure rejects the target (fail closed). This is what stops a public hostname that resolves to a private address.
@@ -125,13 +125,14 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 7. Only `text/html` (pages) and XML/plain text (sitemaps, robots) are read; anything else is rejected before the body is read. Bodies are capped (1.5 MB per page) and truncated with a flag.
 8. Per-page timeout 8 s, whole-crawl budget 25 s, concurrency 4, at most 15 pages, at most 3 child sitemaps, 500 sitemap URLs.
 9. The server refuses to audit its own hostname, rejects MCP request bodies over 32 KB, and identifies itself as `SearchScopeAIVisibilityAuditor/1.0 (+https://searchscope.com.au/ai-visibility-scanner/)`.
-10. The MCP handler validates the `Host` header on `workers.dev` and rejects browser `Origin` headers that are not allow-listed (DNS-rebinding protection from the SDK).
+10. Browser `Origin` headers are accepted from any origin, so custom domains and browser-based MCP clients work. This is safe because the server is stateless and holds no credentials or user data.
+11. Reports quote text from the audited site (headings, opening paragraphs, JSON-LD). Treat that quoted text as untrusted data, not as instructions: a hostile site can put anything in its own copy.
 
 There is no authentication in v1. If abuse becomes a problem, attach a Cloudflare WAF rate-limiting rule to `/mcp` (no code change) or add a bearer token check in `src/index.ts`.
 
 ## 9. Privacy behaviour
 
-Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Cloudflare Workers observability logs (sampled) contain request metadata only. Fetched HTML never leaves the request.
+Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Cloudflare Workers observability logs are sampled at 20% and can include the URL that was audited, but never page content. Fetched HTML never leaves the request.
 
 ## 10. Connecting another MCP client
 

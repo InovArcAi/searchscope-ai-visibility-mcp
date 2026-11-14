@@ -34,6 +34,11 @@ describe("assertPublicHostSyntax", () => {
   it("accepts public hostnames", () => {
     expect(() => assertPublicHostSyntax(new URL("https://searchscope.com.au/"))).not.toThrow();
   });
+  it("holds discovered pages and redirect hops to the default ports, not just the initial target", () => {
+    expect(() => assertPublicHostSyntax(new URL("https://example.org:8443/page"))).toThrow(/default http\/https ports/);
+    expect(() => assertPublicHostSyntax(new URL("http://example.org:22/"))).toThrow(TargetError);
+    expect(() => assertPublicHostSyntax(new URL("https://example.org:443/"))).not.toThrow();
+  });
 });
 
 describe("IP literal classification", () => {

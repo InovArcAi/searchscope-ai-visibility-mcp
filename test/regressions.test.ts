@@ -349,3 +349,11 @@ describe("trade site copy conventions", () => {
     expect(fix!.suggested).not.toContain("HOME SERVICES is");
   });
 });
+
+describe("scraped offerings are never used as raw regular expressions", () => {
+  it("escapes regex metacharacters before matching page titles", async () => {
+    const { escapeRegExp } = await import("../src/analysis/audit");
+    expect(() => new RegExp(escapeRegExp("[x"), "i")).not.toThrow();
+    expect(new RegExp(escapeRegExp("(a+)+$x"), "i").test("(a+)+$x services")).toBe(true);
+  });
+});
