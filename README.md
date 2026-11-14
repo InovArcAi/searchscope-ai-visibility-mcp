@@ -58,7 +58,7 @@ Returns Markdown text plus `structuredContent` with ten sections:
 | G. Structured data | Schema types found, relevant omissions, issues; explicitly notes schema is not a ranking factor |
 | H. Commercial query coverage | Inferred offerings, category, locations, likely intents with the page that covers each, gaps |
 | I. Top 10 actions | Ranked by commercial impact, then AI/search visibility impact, then ease, each with evidence and, where one exists, a concrete `how` |
-| I2. Page-by-page rewrites | The offending text quoted verbatim with a prefilled replacement: opening paragraphs, opening sentences for question headings, internal links to add with suggested anchor text, and a paste-ready JSON-LD block |
+| I2. Page-by-page rewrites | The offending text quoted from the page with a prefilled replacement: opening paragraphs, opening sentences for question headings, internal links to add with suggested anchor text, and a paste-ready JSON-LD block |
 | J. 20 prompts to monitor | Balanced across informational, commercial, comparison, recommendation, alternatives, brand, category, trust and local (only when a location is detected) |
 
 ### `extract_site_entities`
@@ -158,7 +158,7 @@ There is no authentication. `/mcp` is rate limited inside the Worker on every ho
 - 60 requests a minute per client IP and 1,200 a minute in total, for all `/mcp` traffic;
 - on top of that, 20 tool calls a minute per client IP, and 10 tool calls a minute per audited site (hostname without `www.`), so many clients together cannot point the Worker at one website. Tool calls are recognised from the parsed JSON-RPC body, not from headers, and a JSON-RPC batch may carry only one tool call (400 otherwise), because each call starts its own crawl.
 
-These limits are counted separately in each Cloudflare location and are approximate, so they bound abuse rather than enforce an exact worldwide quota. Over a limit the server returns HTTP 429 with `retry-after: 60`. The limiter fails closed: if a binding is missing, a limiter errors, or a public-hostname request arrives without `cf-connecting-ip`, `/mcp` returns 503 rather than serving unmetered. Only a loopback request (`wrangler dev`) may lack the client IP, and it is still counted under a shared local key.
+A homepage that redirects to a different site also spends that site's per-site budget before anything else on it is fetched, so a throwaway redirecting domain cannot dodge the limit. The per-site key is the exact hostname, so distinct subdomains of one site (for example under wildcard DNS) each get their own budget; keying on the registrable domain would need a public suffix list. These limits are counted separately in each Cloudflare location and are approximate, so they bound abuse rather than enforce an exact worldwide quota. Over a limit the server returns HTTP 429 with `retry-after: 60`. The limiter fails closed: if a binding is missing, a limiter errors, or a public-hostname request arrives without `cf-connecting-ip`, `/mcp` returns 503 rather than serving unmetered. Only a loopback request (`wrangler dev`) may lack the client IP, and it is still counted under a shared local key.
 
 ## 9. Privacy behaviour
 
@@ -185,7 +185,7 @@ Legacy 2025-era clients that POST plain JSON-RPC to `/mcp` are also served throu
 
 ## How fixes are generated
 
-Section I2 exists because "rewrite the opening paragraph" is a diagnosis, not a task. Every fix quotes the current text verbatim and returns a replacement built only from what the crawl observed: the page's own H1 as the subject, the detected brand, the detected primary service area, and a price or turnaround found in that page's copy. Anything not observed is left as a visible `[placeholder]`.
+Section I2 exists because "rewrite the opening paragraph" is a diagnosis, not a task. Every fix quotes the current text from the page (long passages shortened, and double quotes or backticks inside it shown as single quotes, see item 11 of the security section) and returns a replacement built only from what the crawl observed: the page's own H1 as the subject, the detected brand, the detected primary service area, and a price or turnaround found in that page's copy. Anything not observed is left as a visible `[placeholder]`.
 
 The tool will not write a claim it cannot source. A fabricated price or a made-up client type in a template is worse than a blank, because a blank gets filled and an invented fact gets published. Two guards follow from that: a figure inside a market statistic ("$402.8 billion") is never reused as pricing, and a duration is only reused as a turnaround when it is measured in days or longer, so "30-minute strategy call" cannot become "typical turnaround is 30-minute".
 
