@@ -5,6 +5,7 @@ import { buildAnswerFixes, buildLinkFixes, buildOpeningFixes, buildSchemaSnippet
 import { inferCategory, monitoringPrompts, type GeoQuery } from "./queries";
 import { aggregateRating, analysePageRetrievability, type PageRetrievability } from "./retrievability";
 import { buildSiteModel, COUNTRIES, EVIDENCE_RE, isAmbiguousAnchor, REGIONS, roleLabel, type Rating, type SiteModel } from "./site";
+import { quoted } from "./siteText";
 
 /** Offerings are scraped page text, so they must never be used as a raw pattern. */
 export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
@@ -104,7 +105,7 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
   if (crawl.robots.disallowsAll) siteWideIssues.push("robots.txt disallows all crawling for every user agent.");
 
   if (noDef.length > 0) actions.push({ action: `Rewrite the opening paragraph on ${noDef.length} page(s) so the first 40 to 60 words state exactly what the page offers, for whom, and where.`, why: "Answer engines extract the first self-contained passage. A slogan or a hero image caption gives them nothing to quote.", impact: 3, visibility: 3, ease: 3, evidence: noDef.slice(0, 3).map((r) => r.url).join(", ") });
-  if (weakQa > 0) actions.push({ action: `Fix ${weakQa} question headings whose answers are thin, hedged or split: answer in the first sentence, then add the specifics.`, why: "Question heading plus direct answer is the most reliably lifted passage shape across ChatGPT, Perplexity and AI Overviews.", impact: 2, visibility: 3, ease: 3, evidence: qaPages.flatMap((r) => r.qa.filter((q) => q.verdict !== "direct").map((q) => `${r.url}: "${q.question}"`)).slice(0, 3).join("; ") });
+  if (weakQa > 0) actions.push({ action: `Fix ${weakQa} question headings whose answers are thin, hedged or split: answer in the first sentence, then add the specifics.`, why: "Question heading plus direct answer is the most reliably lifted passage shape across ChatGPT, Perplexity and AI Overviews.", impact: 2, visibility: 3, ease: 3, evidence: qaPages.flatMap((r) => r.qa.filter((q) => q.verdict !== "direct").map((q) => `${r.url}: ${quoted(q.question)}`)).slice(0, 3).join("; ") });
   if (lowSpec.length >= 2) actions.push({ action: "Add concrete facts to service copy: price ranges, turnaround times, what is included, quantities, years, named locations.", why: "Specific, verifiable statements are what get cited; generic benefit language is skipped.", impact: 3, visibility: 3, ease: 2, evidence: lowSpec.slice(0, 3).map((r) => r.url).join(", ") });
   if (crawl.robots.blockedAiAgents.length) actions.push({ action: `Allow ${crawl.robots.blockedAiAgents.join(", ")} in robots.txt unless blocking them is a deliberate policy.`, why: "A blocked crawler cannot cite the site, full stop.", impact: 3, visibility: 3, ease: 3, evidence: "robots.txt" });
 
@@ -294,7 +295,7 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
   // Entity clarity rating
   const ecPoints = [site.brand.confidence === "high", site.brandCandidates.filter((b) => b.confidence !== "low").length <= 1, offerings.length > 0, !isLocal || strongLocs.length <= 6, site.people.length > 0, entities.schemaTypesFound.some((t) => /Organization|Business/.test(t.type))].filter(Boolean).length;
   const ecRating: Rating = ecPoints >= 5 ? "Strong" : ecPoints >= 3 ? "Moderate" : "Weak";
-  if (entities.ambiguities.some((a) => a.startsWith("Brand name is stated inconsistently"))) actions.push({ action: "Standardise the brand name across schema, og:site_name, title suffix and footer.", why: "Conflicting names split the entity across sources; assistants may treat them as different businesses.", impact: 2, visibility: 3, ease: 3, evidence: site.brandCandidates.filter((b) => b.confidence !== "low").map((b) => b.value).join(" vs ") });
+  if (entities.ambiguities.some((a) => a.startsWith("Brand name is stated inconsistently"))) actions.push({ action: "Standardise the brand name across schema, og:site_name, title suffix and footer.", why: "Conflicting names split the entity across sources; assistants may treat them as different businesses.", impact: 2, visibility: 3, ease: 3, evidence: site.brandCandidates.filter((b) => b.confidence !== "low").map((b) => quoted(b.value, 120)).join(" vs ") });
 
   // Concrete, page-level instructions for the findings that have them.
   const openingFixes = buildOpeningFixes(site, retr);
@@ -306,15 +307,15 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
     if (/Rewrite the opening paragraph/.test(a.action) && openingFixes[0]) {
       a.how = openingFixes
         .slice(0, 3)
-        .map((f) => `${f.url}\n    now: "${f.currentOpening}"\n    use: "${f.suggested}"`)
+        .map((f) => `${f.url}\n    now: ${quoted(f.currentOpening)}\n    use: ${quoted(f.suggested, 600)}`)
         .join("\n  ");
     } else if (/Fix \d+ question headings/.test(a.action) && answerFixes[0]) {
       a.how = answerFixes
         .slice(0, 3)
-        .map((f) => `${f.url} — "${f.question}"\n    now: "${f.currentFirstSentence}"\n    open with: "${f.suggestedOpening}"`)
+        .map((f) => `${f.url}: ${quoted(f.question)}\n    now: ${quoted(f.currentFirstSentence)}\n    open with: ${quoted(f.suggestedOpening, 600)}`)
         .join("\n  ");
     } else if (/Link every service page/.test(a.action) && linkFixes[0]) {
-      a.how = linkFixes.slice(0, 4).map((f) => `link ${f.from} to ${f.to} with anchor "${f.suggestedAnchor}"`).join("\n  ");
+      a.how = linkFixes.slice(0, 4).map((f) => `link ${f.from} to ${f.to} with anchor ${quoted(f.suggestedAnchor, 120)}`).join("\n  ");
     } else if (/JSON-LD to the homepage/.test(a.action) && schemaSnippet) {
       a.how = `Paste into ${schemaSnippet.where}, replacing every [placeholder]:\n${schemaSnippet.jsonLd}`;
     }

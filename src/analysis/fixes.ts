@@ -3,6 +3,7 @@ import { classifyPath } from "../crawl/crawler";
 import type { ParsedPage } from "../parse/types";
 import type { PageRetrievability } from "./retrievability";
 import { stripBrandSuffix, type SiteModel } from "./site";
+import { jsonSafe } from "./siteText";
 
 /**
  * Turns findings into things a writer can act on without thinking.
@@ -232,5 +233,7 @@ export function buildSchemaSnippet(site: SiteModel, primaryType: string): string
   if (served.length) node["areaServed"] = served;
   if (site.people[0]) node["founder"] = { "@type": "Person", name: site.people[0].name, jobTitle: site.people[0].role || "[role]" };
   node["sameAs"] = site.sameAs.length ? site.sameAs : ["[Google Business Profile URL]", "[LinkedIn URL]", "[any directory or association profile]"];
-  return JSON.stringify(node, null, 2);
+  // Site values sit inside this block, which is shown in a code fence: escape
+  // anything that could close the fence or hide text (same JSON value).
+  return jsonSafe(JSON.stringify(node, null, 2));
 }
