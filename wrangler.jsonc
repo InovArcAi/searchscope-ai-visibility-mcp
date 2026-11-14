@@ -5,10 +5,11 @@
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
-  // Rate limits for the public /mcp endpoint, applied in src/index.ts on every
-  // hostname (custom domain and workers.dev). Counted per Cloudflare location,
-  // not worldwide, and approximate. All three are required: /mcp returns 503
-  // if any is missing. namespace_id values are account-wide; a value shared
+  // Rate limits for the public /mcp endpoint and the REST API under /api/v1
+  // (src/index.ts, src/api/rest.ts), shared by both under the same keys, on
+  // every hostname (custom domain and workers.dev). Counted per Cloudflare
+  // location, not worldwide, and approximate. All three are required: /mcp
+  // and /api/v1 return 503 if any is missing. namespace_id values are account-wide; a value shared
   // with another Worker would share its counters.
   "ratelimits": [
     // Per client IP, weighted: any /mcp request costs 1, a tools/call (which
@@ -36,6 +37,8 @@
     "head_sampling_rate": 0.2
   }
   // No storage bindings (no KV, D1 or Durable Objects): the server is fully stateless.
+  // Optional secrets, set on the Worker and never committed: API_KEY_SIGNING_SECRET
+  // (signs the free REST API keys) and RAPIDAPI_PROXY_SECRET (see README, section 2a).
   // Deploy with `npm run deploy` (needs a Cloudflare API token) or connect the
   // repository to Cloudflare Workers Builds for automatic deploys from `main`.
 }

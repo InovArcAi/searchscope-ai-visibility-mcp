@@ -4,10 +4,11 @@
 
 A free remote [MCP](https://modelcontextprotocol.io) server from [Search Scope](https://searchscope.com.au/) that lets Claude, ChatGPT, Cursor and other MCP-compatible assistants audit a public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities.
 
-Stateless, read-only, no accounts, no API key, no database, no paid APIs.
+Stateless, read-only, no accounts, no database, no paid APIs. The MCP endpoint needs no key; the REST API takes an optional free one.
 
 - **MCP endpoint (Streamable HTTP):** `https://mcp.searchscope.com.au/mcp`
 - Landing page: [mcp.searchscope.com.au](https://mcp.searchscope.com.au/) (HTML, or JSON with `Accept: application/json`)
+- **REST API:** `https://mcp.searchscope.com.au/api/v1` (docs at [mcp.searchscope.com.au/docs/api](https://mcp.searchscope.com.au/docs/api), OpenAPI 3.1 at `/api/v1/openapi.json`)
 - Health: `/health` returns `{"status":"ok","service":"Search Scope AI Visibility Auditor"}`
 
 Connect it in one line:
@@ -73,6 +74,33 @@ Input: `{ "url": "https://example.com", "service": "optional override", "locatio
 
 Returns prompts grouped by intent (informational, problem-aware, commercial, recommendation, comparison, alternatives, brand, category, local, trust/validation). Each prompt has `intent`, `buyerStage`, `idealPageType` and `commercialPriority`.
 
+## 2a. REST API
+
+The same three tools as plain JSON endpoints, for platforms that speak HTTP rather than MCP (RapidAPI, Make, Zapier, Postman and other OpenAPI importers). Code: `src/api/`. The tools themselves run through `src/tools/run.ts`, which the MCP server uses too, so input validation, the SSRF gate, the crawl and the site-text defusing exist once.
+
+| Endpoint | Body | Returns |
+|---|---|---|
+| `POST /api/v1/audit` | `url`, optional `maxPages` | `{ "data": <audit_ai_visibility structured content>, "report": "<the same Markdown report>" }` |
+| `POST /api/v1/entities` | `url`, optional `maxPages` | same shape, for `extract_site_entities` |
+| `POST /api/v1/queries` | `url`, optional `service`, `location`, `count` | same shape, for `generate_geo_query_universe` |
+| `GET /api/v1/status` | none | connection test for automation platforms; crawls nothing |
+| `POST /api/v1/keys` | none | a new free API key |
+| `GET /api/v1/openapi.json` | none | OpenAPI 3.1 document, generated from the same Zod schemas the Worker validates with |
+
+Request bodies are the MCP tools' input schemas made strict, so an unknown or misspelt field is a 400 rather than silently ignored. Errors are `{"error": {"code", "message"}}` with codes `invalid_json`, `invalid_input`, `target_rejected` (400), `invalid_api_key` (401), `host_not_allowed`, `origin_not_allowed` (403), `payload_too_large` (413), `site_unreadable` (422), `rate_limited` (429), `audit_failed` (500), `unavailable` and `keys_unavailable` (503). The human docs page is `/docs/api`.
+
+```bash
+curl -X POST https://mcp.searchscope.com.au/api/v1/audit \
+  -H "content-type: application/json" \
+  -d '{"url":"https://example.com.au"}'
+```
+
+**Optional free keys.** Every endpoint works without a key. A key exists for platforms whose connection screen insists on one, and so a misconfigured connection fails its test call with a 401 instead of silently working. Keys are issued instantly from the docs page or `POST /api/v1/keys`, with no sign-up and nothing stored: a key is `ssk_` plus a random id plus an HMAC of that id under the `API_KEY_SIGNING_SECRET` Worker secret, checked in constant time. A key gives no extra allowance. It is only read from `Authorization: Bearer <key>` (never from the URL), is never echoed in a response, and has its own budget the size of one client's, so a key pasted somewhere public cannot be shared out beyond that. A header that is present must hold a valid key (401 otherwise); with no signing secret set, a request that sends a key gets 503 `keys_unavailable` and keyless requests carry on. Keys cannot be revoked one by one; rotating the secret invalidates all of them.
+
+**RapidAPI.** RapidAPI forwards every request from its own servers, so all its users would share one IP budget. When the `RAPIDAPI_PROXY_SECRET` Worker secret is set and a request carries a matching `X-RapidAPI-Proxy-Secret` header (compared in constant time), the client budget is keyed on `X-RapidAPI-User` instead. Without the secret, or with a wrong one, those headers are ignored and the request is limited per IP like any other, so the username header cannot be forged to dodge the limit.
+
+**Platform notes.** An audit usually takes 5 to 25 seconds. Zapier stops an action after 30 seconds, so integrations there should send a smaller `maxPages`. Make, Zapier, Pabbly and Albato call from shared servers, so at busy times their users share one client budget; per-key budgets with stored keys would be the next step if that becomes a real constraint.
+
 ## 3. Local development
 
 Requirements: Node 22+, npm.
@@ -108,11 +136,11 @@ npm run typecheck
 npm test
 ```
 
-The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, hostnames whose DNS answers point at private space, the DNS-over-HTTPS check itself (CNAME chains, AAAA-only and IPv4-mapped answers, NXDOMAIN, HTTP and network failures), maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, Host and Origin checks, the request body limit, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
+The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, hostnames whose DNS answers point at private space, the DNS-over-HTTPS check itself (CNAME chains, AAAA-only and IPv4-mapped answers, NXDOMAIN, HTTP and network failures), maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, Host and Origin checks, the request body limit, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site. `test/api.test.ts` covers the REST API the same way: every endpoint, the OpenAPI document (every `$ref` resolves, schemas match the Zod ones), the docs page, Host, Origin, CORS preflight, methods and body limits, the shared rate limits (one 20-tool-call budget across `/mcp` and `/api/v1`), and every key and RapidAPI path, including wrong, tampered, foreign and malformed keys.
 
 ## 5. Deployment
 
-The Worker has no secrets and no storage. Its only bindings are the four rate limiters declared in `wrangler.jsonc`, which deploy with it and need no setup beyond a `namespace_id` that no other Worker on the account uses. Two options:
+The Worker has no storage. Its only bindings are the three rate limiters declared in `wrangler.jsonc`, which deploy with it and need no setup beyond a `namespace_id` that no other Worker on the account uses. Two optional secrets switch on parts of the REST API and are set on the Worker (dashboard: Workers & Pages, the Worker, Settings, Variables and Secrets; or `wrangler secret put`), never committed: `API_KEY_SIGNING_SECRET` (at least 32 random characters; signs the free API keys) and `RAPIDAPI_PROXY_SECRET` (the value from the RapidAPI listing's gateway settings). Secrets persist across deploys. Two deploy options:
 
 **Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. This is how the production Worker is deployed, which is why `.github/workflows/deploy.yml` only runs typecheck and tests.
 
@@ -153,17 +181,17 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 10. `/mcp` only answers on its own hostnames (`SERVICE_HOSTNAMES` in `src/config.ts`) and loopback, so a DNS name rebound to the Worker or to `wrangler dev` cannot reach a tool. Browser `Origin` policy: a request with no `Origin` (desktop apps, editors, server-side connectors, `mcp-remote`) is accepted; a well-formed `http` or `https` origin is accepted from any site, so browser-based MCP clients work; `Origin: null`, browser-extension schemes and malformed values get a 403. Accepting any web origin is deliberate for a free public server: it is unauthenticated, read-only and stateless, sets no cookies and holds no credentials, so a cross-site page can learn nothing it could not fetch itself, and browser traffic counts against the same rate limits as everything else.
 11. Reports quote text from the audited site (headings, opening paragraphs, JSON-LD). A hostile site can put anything in its own copy, including text addressed to the model reading the report, so site text is handled as untrusted data (`src/analysis/siteText.ts`): every report opens with a notice saying so; verbatim passages sit in double quotes and any double quote inside site text becomes a single quote, so it cannot close its own quotation; line breaks collapse, so site text cannot start a heading or section; backticks, tag-like `<` and Markdown link and image syntax are defused; invisible characters (bidi overrides, zero-width and Unicode tag characters) are removed from both the text and the structured content; each value is length-capped, and the readable report is capped at 60,000 characters with the footer always kept. The paste-ready JSON-LD block escapes backticks and angle brackets as `\u` sequences, so it cannot close its code fence and still parses to the same value. This narrows prompt injection but cannot remove it: the model still reads the site's words, so treat them as data, not as instructions.
 
-There is no authentication. `/mcp` is rate limited inside the Worker on every hostname, using the Workers rate limiting binding:
+There is no required authentication. `/mcp` and the REST API under `/api/v1` are rate limited inside the Worker on every hostname, using the Workers rate limiting binding, with the same limiters under the same keys, so a client cannot double its budget by switching between them:
 
-- a weighted budget of 60 units a minute per client IP, where any `/mcp` request costs 1 and a tool call costs 3 (it crawls up to 15 pages), so one client gets at most 20 tool calls a minute, fewer if it also sends other requests;
-- 1,200 requests a minute in total, for all `/mcp` traffic;
+- a weighted budget of 60 units a minute per client IP (or per verified RapidAPI user), where any `/mcp` or API request costs 1 and a tool call costs 3 (it crawls up to 15 pages), so one client gets at most 20 tool calls a minute across both, fewer if it also sends other requests; a request with a free API key also spends the same amount from that key's own 60-unit budget;
+- 1,200 requests a minute in total, for all `/mcp` and API traffic;
 - 10 tool calls a minute per audited site (hostname without `www.`), so many clients together cannot point the Worker at one website. Tool calls are recognised from the parsed JSON-RPC body, not from headers, and a JSON-RPC batch may carry only one tool call (400 otherwise), because each call starts its own crawl.
 
 A homepage that redirects to a different site also spends that site's per-site budget before anything else on it is fetched, so a throwaway redirecting domain cannot dodge the limit. The per-site key is the exact hostname, so distinct subdomains of one site (for example under wildcard DNS) each get their own budget; keying on the registrable domain would need a public suffix list. These limits are counted separately in each Cloudflare location and are approximate, so they bound abuse rather than enforce an exact worldwide quota. Over a limit the server returns HTTP 429 with `retry-after: 60`. The limiter fails closed: if a binding is missing, a limiter errors, or a public-hostname request arrives without `cf-connecting-ip`, `/mcp` returns 503 rather than serving unmetered. Only a loopback request (`wrangler dev`) may lack the client IP, and it is still counted under a shared local key.
 
 ## 9. Privacy behaviour
 
-Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Cloudflare Workers observability logs are sampled at 20% and can include the URL that was audited, but never page content. Fetched HTML never leaves the request.
+Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Free API keys are signed, not stored, so there is no list of keys or of who asked for one. Cloudflare Workers observability logs are sampled at 20% and can include the URL that was audited, but never page content. Workers Logs record request headers; Cloudflare states it redacts sensitive ones such as `Authorization`, which is the only header an API key is read from, and the Worker never logs a key itself. Fetched HTML never leaves the request.
 
 ## 10. Connecting another MCP client
 

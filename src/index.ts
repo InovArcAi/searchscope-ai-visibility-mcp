@@ -1,19 +1,14 @@
 import { createMcpHandler } from "agents/mcp/server";
 import { decodeBase64, FAVICON_SVG, ICON_512_PNG_BASE64, LOGO_PNG_BASE64 } from "./brand/assets";
+import { PAGE_CSS } from "./brand/page";
 import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_HOSTNAMES, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
+import { apiDocsHtml } from "./api/docs";
+import { API_BASE_PATH } from "./api/openapi";
+import { handleApi } from "./api/rest";
+import type { Env } from "./env";
 import { createServer } from "./mcp/server";
-import { isAcceptableOrigin, readBodyCapped, targetKey, toolCallsIn } from "./security/request";
-
-interface Env {
-  /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
-  DEV_ALLOW_LOOPBACK_TARGETS?: string;
-  /** Per-client budget on /mcp (see wrangler.jsonc `ratelimits`): every request costs 1, a tools/call costs LIMITS.toolCallWeight in total. */
-  MCP_RATE_LIMIT_PER_IP?: RateLimit;
-  /** Ceiling on all /mcp traffic, so a crawler or loop cannot exhaust the account's Workers quota. */
-  MCP_RATE_LIMIT_GLOBAL?: RateLimit;
-  /** Per audited hostname, so the Worker cannot be used to hammer one website from many clients. */
-  MCP_RATE_LIMIT_PER_TARGET?: RateLimit;
-}
+import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./security/limits";
+import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 
 function rateLimited(): Response {
   return Response.json(
@@ -35,12 +30,8 @@ function unavailable(): Response {
 
 /** True when every limiter allowed the request; otherwise the response to send. A limiter that errors fails closed. */
 async function withinLimits(checks: Array<() => Promise<RateLimitOutcome>>): Promise<true | Response> {
-  try {
-    const outcomes = await Promise.all(checks.map((check) => check()));
-    return outcomes.every((o) => o.success) ? true : rateLimited();
-  } catch {
-    return unavailable();
-  }
+  const verdict = await checkLimits(checks);
+  return verdict === "ok" ? true : verdict === "limited" ? rateLimited() : unavailable();
 }
 
 const bodyTooLarge = (): Response => rpcError(413, -32600, "Request body too large.");
@@ -51,10 +42,6 @@ const TOOLS = [
   { name: "generate_geo_query_universe", summary: "Balanced set of AI-search prompts to monitor for a site, grouped by intent with buyer stage, ideal page type and priority." },
 ] as const;
 
-function isLoopbackHost(hostname: string): boolean {
-  return hostname === "localhost" || hostname === "127.0.0.1" || hostname === "[::1]";
-}
-
 let mcpHandler: ReturnType<typeof createMcpHandler> | undefined;
 let devLoopback = false;
 /** The per-site limiter, for sites reached by a cross-site homepage redirect. Bindings are the same object for every request in an isolate. */
@@ -64,19 +51,10 @@ function getHandler(): ReturnType<typeof createMcpHandler> {
   mcpHandler ??= createMcpHandler(
     (ctx) => {
       const reqUrl = ctx.requestInfo ? new URL(ctx.requestInfo.url) : undefined;
-      const limiter = perTargetLimiter;
       return createServer({
         selfHostnames: reqUrl ? [reqUrl.hostname] : undefined,
         devAllowLoopbackTargets: devLoopback && Boolean(reqUrl && isLoopbackHost(reqUrl.hostname)),
-        chargeRedirectTarget: async (hostname) => {
-          const key = targetKey(hostname);
-          if (!limiter || !key) return false;
-          try {
-            return (await limiter.limit({ key })).success;
-          } catch {
-            return false; // fail closed, as at the front door
-          }
-        },
+        chargeRedirectTarget: redirectCharger(perTargetLimiter),
       });
     },
     {
@@ -154,43 +132,7 @@ function landingHtml(origin: string): string {
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
 <style>
-:root{--navy:#293057;--navy-deep:#1d2342;--teal:#2BD4C2;--teal-ink:#0C7268;--muted:#666C9E;--line:#E5E7EB;--paper:#F8F8FB;--ink:#1d2342;--card:#FFFFFF}
-*{box-sizing:border-box}
-body{margin:0;background:var(--paper);color:var(--ink);font:16px/1.6 "Outfit",system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;-webkit-font-smoothing:antialiased}
-a{color:var(--teal-ink);text-decoration-thickness:1px;text-underline-offset:2px}
-a:hover{color:var(--navy)}
-.wrap{max-width:820px;margin:0 auto;padding:0 20px}
-header{background:var(--navy);color:#fff;padding-block:28px}
-header img{height:34px;width:auto;display:block}
-header .wrap{display:flex;align-items:center;gap:16px;flex-wrap:wrap}
-header .badge{margin-left:auto;font-size:.78rem;letter-spacing:.08em;text-transform:uppercase;color:var(--teal);border:1px solid rgba(43,212,194,.45);border-radius:999px;padding:5px 12px;white-space:nowrap}
-h1{font-size:clamp(1.6rem,4.2vw,2.3rem);line-height:1.2;margin:36px 0 10px;color:var(--navy)}
-.lede{font-size:1.08rem;color:#444a70;margin:0 0 28px}
-h2{font-size:1.15rem;margin:34px 0 12px;color:var(--navy)}
-h3{font-size:.97rem;margin:0 0 6px;color:var(--navy);font-family:ui-monospace,Menlo,Consolas,monospace}
-.endpoint{background:var(--navy-deep);color:#fff;border-radius:12px;padding:18px 20px;margin:0 0 6px}
-.endpoint span{display:block;font-size:.74rem;letter-spacing:.1em;text-transform:uppercase;color:var(--teal);margin-bottom:8px}
-.endpoint code{font-family:ui-monospace,Menlo,Consolas,monospace;font-size:clamp(.82rem,2.6vw,1rem);word-break:break-all;color:#fff}
-.note{font-size:.88rem;color:var(--muted);margin:0 0 24px}
-ul.tools{list-style:none;padding:0;margin:0;display:grid;gap:12px}
-ul.tools li{background:var(--card);border:1px solid var(--line);border-left:3px solid var(--teal);border-radius:10px;padding:14px 16px}
-ul.tools p{margin:0;font-size:.93rem;color:#4a5070}
-.cta{background:var(--card);border:1px solid var(--line);border-radius:12px;padding:22px;margin:30px 0}
-.cta p{margin:0 0 14px}
-.btn{display:inline-block;background:var(--navy);color:#fff;font-weight:600;text-decoration:none;padding:11px 20px;border-radius:8px}
-.btn:hover{background:var(--navy-deep);color:#fff}
-.btn.ghost{background:transparent;color:var(--navy);border:1px solid var(--navy);margin-left:8px}
-.btn.ghost:hover{background:var(--navy);color:#fff}
-footer{border-top:1px solid var(--line);margin-top:40px;padding-block:26px 40px;font-size:.88rem;color:var(--muted)}
-footer a{color:var(--muted)}
-@media (max-width:430px){.btn.ghost{margin:10px 0 0;display:block;text-align:center}}
-@media (prefers-color-scheme:dark){
-:root{--paper:#14172b;--ink:#e8e9f3;--card:#1c2038;--line:#2b3052;--muted:#9aa0c8}
-h1,h2,h3{color:#fff}.lede{color:#b9bede}ul.tools p{color:#b9bede}
-a{color:var(--teal)}a:hover{color:#fff}
-.btn{background:var(--teal);color:#10233f}.btn:hover{background:#4fe0d1;color:#10233f}
-.btn.ghost{color:#fff;border-color:#4b5280}
-}
+${PAGE_CSS}
 </style></head>
 <body>
 <header><div class="wrap">
@@ -219,7 +161,7 @@ a{color:var(--teal)}a:hover{color:#fff}
 <p class="note">Public website content is fetched and analysed in memory for the length of one request, then discarded. Nothing is stored. No accounts, no database, no cookies, no tracking. The crawler identifies itself as <code>SearchScopeAIVisibilityAuditor</code>, reads at most ${LIMITS.hardMaxPages} pages per request, honours sitemap hints in robots.txt, never submits forms, never runs scripts and refuses private, internal or loopback addresses.</p>
 </main>
 <footer class="wrap">
-Published by <a href="${PUBLISHER_URL}">${PUBLISHER}</a>, ${PUBLISHER_LOCATION}. Version ${SERVICE_VERSION}. Status at <a href="${origin}/health">/health</a>.
+Published by <a href="${PUBLISHER_URL}">${PUBLISHER}</a>, ${PUBLISHER_LOCATION}. Version ${SERVICE_VERSION}. REST API docs at <a href="${origin}/docs/api">/docs/api</a>. Status at <a href="${origin}/health">/health</a>.
 </footer>
 </body></html>`;
 }
@@ -265,7 +207,7 @@ export default {
       // about 20 outbound fetches, so it fails closed: no limiter, no service.
       // Cloudflare always sets cf-connecting-ip in production; only a loopback
       // request (wrangler dev) may fall back to a shared local key.
-      const clientIp = request.headers.get("cf-connecting-ip") ?? (isLoopbackHost(url.hostname) ? "loopback" : null);
+      const clientIp = clientIpKey(request, url.hostname);
       const { MCP_RATE_LIMIT_PER_IP: perIp, MCP_RATE_LIMIT_GLOBAL: global, MCP_RATE_LIMIT_PER_TARGET: perTarget } = env;
       if (!clientIp || !perIp || !global || !perTarget) return unavailable();
       const allowed = await withinLimits([() => perIp.limit({ key: clientIp }), () => global.limit({ key: "mcp" })]);
@@ -300,6 +242,20 @@ export default {
       return getHandler()(forward, env, ctx);
     }
 
+    // The REST API (src/api/rest.ts) applies the same Host, Origin, body and
+    // rate-limit guards as /mcp, under the same limiter keys.
+    if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
+      return handleApi(request, env, url);
+    }
+
+    if (url.pathname === "/docs/api" || url.pathname === "/docs/api/") {
+      if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
+      // same-origin, not no-referrer: under no-referrer a browser sends
+      // `Origin: null` with the page's "Get a free API key" form post, which
+      // the API's Origin policy refuses. Other sites still get no referrer.
+      return new Response(request.method === "HEAD" ? null : apiDocsHtml(url.origin), { headers: { ...SECURITY_HEADERS, "referrer-policy": "same-origin", "content-type": "text/html; charset=utf-8" } });
+    }
+
     if (url.pathname === "/health") {
       return Response.json({ status: "ok", service: SERVICE_NAME }, { headers: { ...SECURITY_HEADERS, "cache-control": "no-store" } });
     }
@@ -320,6 +276,7 @@ export default {
             transport: "streamable-http",
             authentication: "none",
             tools: TOOLS,
+            restApi: { baseUrl: `${url.origin}${API_BASE_PATH}`, openapi: `${url.origin}${API_BASE_PATH}/openapi.json`, docs: `${url.origin}/docs/api`, authentication: "optional free API key (Authorization: Bearer)" },
             privacy: "Public website content is analysed transiently for one request and is not stored.",
             contact: PUBLISHER_CONTACT_URL,
           },
@@ -351,7 +308,7 @@ export default {
     }
 
     if (url.pathname === "/robots.txt") {
-      return new Response("User-agent: *\nDisallow: /mcp\n", { headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" } });
+      return new Response("User-agent: *\nDisallow: /mcp\nDisallow: /api/\n", { headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" } });
     }
 
     return new Response("Not Found", { status: 404, headers: SECURITY_HEADERS });
