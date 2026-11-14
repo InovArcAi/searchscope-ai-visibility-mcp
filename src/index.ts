@@ -1,6 +1,6 @@
 import { createMcpHandler } from "agents/mcp/server";
-import { decodeBase64, FAVICON_SVG, LOGO_PNG_BASE64 } from "./brand/assets";
-import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_NAME, SERVICE_VERSION } from "./config";
+import { decodeBase64, FAVICON_SVG, ICON_512_PNG_BASE64, LOGO_PNG_BASE64 } from "./brand/assets";
+import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
 import { createServer } from "./mcp/server";
 
 interface Env {
@@ -56,6 +56,44 @@ function getHandler(): ReturnType<typeof createMcpHandler> {
   );
   return mcpHandler;
 }
+
+/**
+ * MCP Server Card (SEP-2127, io.modelcontextprotocol/server-card): static,
+ * pre-connection metadata served at `<mcp-url>/server-card` and referenced from
+ * the domain AI Catalog. `name` matches the official MCP registry entry.
+ */
+const SERVER_CARD = {
+  $schema: "https://static.modelcontextprotocol.io/schemas/v1/server-card.schema.json",
+  name: "au.com.searchscope/ai-visibility-auditor",
+  version: SERVICE_VERSION,
+  title: SERVICE_TITLE,
+  // Server Card descriptions are capped at 100 characters; same wording as server.json.
+  description: "Free AI search visibility audit for any website, by Search Scope, an SEO consultancy in Perth.",
+  websiteUrl: PUBLISHER_URL,
+  icons: [
+    { src: `${SERVICE_ORIGIN}/icon.png`, mimeType: "image/png", sizes: ["512x512"] },
+    { src: `${SERVICE_ORIGIN}/favicon.svg`, mimeType: "image/svg+xml", sizes: ["any"] },
+  ],
+  repository: { url: "https://github.com/InovArcAi/searchscope-ai-visibility-mcp", source: "github" },
+  remotes: [{ type: "streamable-http", url: `${SERVICE_ORIGIN}/mcp` }],
+};
+
+const AI_CATALOG = {
+  specVersion: "1.0",
+  entries: [
+    {
+      identifier: "urn:air:searchscope.com.au:mcp:ai-visibility-auditor",
+      type: "application/mcp-server-card+json",
+      url: `${SERVICE_ORIGIN}/mcp/server-card`,
+    },
+  ],
+};
+
+const DISCOVERY_HEADERS = {
+  "access-control-allow-origin": "*",
+  "cache-control": "public, max-age=3600",
+  "x-content-type-options": "nosniff",
+};
 
 const SECURITY_HEADERS = {
   "x-content-type-options": "nosniff",
@@ -151,6 +189,24 @@ export default {
     devLoopback = env.DEV_ALLOW_LOOPBACK_TARGETS === "1";
     const url = new URL(request.url);
 
+    if (url.pathname === "/mcp/server-card" || url.pathname === "/.well-known/mcp/server-card.json") {
+      return new Response(JSON.stringify(SERVER_CARD, null, 2), { headers: { ...DISCOVERY_HEADERS, "content-type": "application/mcp-server-card+json" } });
+    }
+
+    if (url.pathname === "/.well-known/ai-catalog.json") {
+      return new Response(JSON.stringify(AI_CATALOG, null, 2), { headers: { ...DISCOVERY_HEADERS, "content-type": "application/ai-catalog+json" } });
+    }
+
+    // A person (or a directory checker) opening the MCP URL in a browser gets the
+    // setup page instead of a bare 405. MCP clients never send a GET that accepts
+    // text/html without text/event-stream, so the protocol path is untouched.
+    if (url.pathname === "/mcp" && (request.method === "GET" || request.method === "HEAD")) {
+      const accept = request.headers.get("accept") ?? "";
+      if (!accept.includes("text/event-stream")) {
+        return new Response(request.method === "HEAD" ? null : landingHtml(url.origin), { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" } });
+      }
+    }
+
     if (url.pathname === "/mcp") {
       const len = Number(request.headers.get("content-length") ?? "0");
       if (Number.isFinite(len) && len > LIMITS.maxRequestBodyBytes) {
@@ -204,6 +260,12 @@ export default {
     // the bytes only change when the Worker is redeployed.
     if (url.pathname === "/logo.png") {
       return new Response(decodeBase64(LOGO_PNG_BASE64), {
+        headers: { ...SECURITY_HEADERS, "content-type": "image/png", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" },
+      });
+    }
+
+    if (url.pathname === "/icon.png") {
+      return new Response(decodeBase64(ICON_512_PNG_BASE64), {
         headers: { ...SECURITY_HEADERS, "content-type": "image/png", "cache-control": "public, max-age=86400, stale-while-revalidate=604800" },
       });
     }
