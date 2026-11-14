@@ -3,6 +3,45 @@
  * handler sees anything. (Outbound target checks live in ./url.ts.)
  */
 
+import { normaliseTargetUrl } from "./url";
+
+export interface ToolCall {
+  /** Rate-limit key for the site the call would crawl: hostname without `www.`. Absent when the URL is unusable (the tool rejects it without fetching). */
+  target?: string;
+}
+
+/**
+ * The `tools/call` messages in a JSON-RPC body, whether it holds one message
+ * or a batch. Classified from the parsed body, never from headers such as
+ * Mcp-Method, which a client can simply leave out. A body that is not JSON
+ * yields nothing here and is refused by the MCP handler as a parse error.
+ */
+export function toolCallsIn(body: Uint8Array): ToolCall[] {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(new TextDecoder().decode(body));
+  } catch {
+    return [];
+  }
+  const messages = Array.isArray(parsed) ? parsed : [parsed];
+  const calls: ToolCall[] = [];
+  for (const m of messages) {
+    if (!m || typeof m !== "object" || (m as { method?: unknown }).method !== "tools/call") continue;
+    const args = (m as { params?: { arguments?: { url?: unknown } } }).params?.arguments;
+    calls.push({ target: typeof args?.url === "string" ? targetKey(args.url) : undefined });
+  }
+  return calls;
+}
+
+/** Same host normalisation the crawler applies, so `www.` and case variants share one budget. */
+export function targetKey(url: string): string | undefined {
+  try {
+    return normaliseTargetUrl(url).hostname.replace(/\.$/, "").replace(/^www\./, "");
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Browser Origin policy for /mcp. Desktop, editor and server-side MCP clients
  * send no Origin, so a missing header is accepted. A present Origin must be a

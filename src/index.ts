@@ -2,7 +2,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import { decodeBase64, FAVICON_SVG, ICON_512_PNG_BASE64, LOGO_PNG_BASE64 } from "./brand/assets";
 import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_HOSTNAMES, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
 import { createServer } from "./mcp/server";
-import { isAcceptableOrigin, readBodyCapped } from "./security/request";
+import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 
 interface Env {
   /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
@@ -11,6 +11,10 @@ interface Env {
   MCP_RATE_LIMIT_PER_IP?: RateLimit;
   /** Ceiling on all /mcp traffic, so a crawler or loop cannot exhaust the account's Workers quota. */
   MCP_RATE_LIMIT_GLOBAL?: RateLimit;
+  /** Per-client limit on tools/call, the only requests that crawl a site. */
+  MCP_RATE_LIMIT_TOOL_CALLS_PER_IP?: RateLimit;
+  /** Per audited hostname, so the Worker cannot be used to hammer one website from many clients. */
+  MCP_RATE_LIMIT_PER_TARGET?: RateLimit;
 }
 
 function rateLimited(): Response {
@@ -22,6 +26,23 @@ function rateLimited(): Response {
 
 function rpcError(status: number, code: number, message: string): Response {
   return Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
+}
+
+function unavailable(): Response {
+  return Response.json(
+    { jsonrpc: "2.0", error: { code: -32000, message: "Service temporarily unavailable. Please try again shortly." }, id: null },
+    { status: 503, headers: { "retry-after": "60" } },
+  );
+}
+
+/** True when every limiter allowed the request; otherwise the response to send. A limiter that errors fails closed. */
+async function withinLimits(checks: Array<() => Promise<RateLimitOutcome>>): Promise<true | Response> {
+  try {
+    const outcomes = await Promise.all(checks.map((check) => check()));
+    return outcomes.every((o) => o.success) ? true : rateLimited();
+  } catch {
+    return unavailable();
+  }
 }
 
 const bodyTooLarge = (): Response => rpcError(413, -32600, "Request body too large.");
@@ -230,20 +251,33 @@ export default {
       const len = Number(request.headers.get("content-length") ?? "0");
       if (Number.isFinite(len) && len > LIMITS.maxRequestBodyBytes) return bodyTooLarge();
       // The endpoint is public and unauthenticated, and one audit can fan out to
-      // about 20 outbound fetches. Cloudflare always sets cf-connecting-ip in
-      // production; it is absent only in local tests and wrangler dev.
-      const clientIp = request.headers.get("cf-connecting-ip");
-      if (clientIp && env.MCP_RATE_LIMIT_PER_IP && env.MCP_RATE_LIMIT_GLOBAL) {
-        const [perIp, global] = await Promise.all([
-          env.MCP_RATE_LIMIT_PER_IP.limit({ key: clientIp }),
-          env.MCP_RATE_LIMIT_GLOBAL.limit({ key: "mcp" }),
-        ]);
-        if (!perIp.success || !global.success) return rateLimited();
-      }
+      // about 20 outbound fetches, so it fails closed: no limiter, no service.
+      // Cloudflare always sets cf-connecting-ip in production; only a loopback
+      // request (wrangler dev) may fall back to a shared local key.
+      const clientIp = request.headers.get("cf-connecting-ip") ?? (isLoopbackHost(url.hostname) ? "loopback" : null);
+      const { MCP_RATE_LIMIT_PER_IP: perIp, MCP_RATE_LIMIT_GLOBAL: global, MCP_RATE_LIMIT_TOOL_CALLS_PER_IP: toolsPerIp, MCP_RATE_LIMIT_PER_TARGET: perTarget } = env;
+      if (!clientIp || !perIp || !global || !toolsPerIp || !perTarget) return unavailable();
+      const allowed = await withinLimits([() => perIp.limit({ key: clientIp }), () => global.limit({ key: "mcp" })]);
+      if (allowed !== true) return allowed;
+
       let forward = request;
       if (request.body && request.method !== "GET" && request.method !== "HEAD") {
         const bytes = await readBodyCapped(request.body, LIMITS.maxRequestBodyBytes);
         if (!bytes) return bodyTooLarge();
+        // Tool calls are what cost outbound fetches, so they carry their own
+        // limits: per client, and per audited site so the Worker cannot be
+        // pointed at one website as a load generator. JSON-RPC batches would
+        // let one request start many crawls, so a batch may hold one call.
+        const calls = toolCallsIn(bytes);
+        if (calls.length > 1) return rpcError(400, -32600, "Send one tools/call per request.");
+        const call = calls[0];
+        if (call) {
+          const checks = [() => toolsPerIp.limit({ key: clientIp })];
+          const target = call.target;
+          if (target) checks.push(() => perTarget.limit({ key: target }));
+          const toolAllowed = await withinLimits(checks);
+          if (toolAllowed !== true) return toolAllowed;
+        }
         // The handler gets the exact bytes received, now with a known length.
         const headers = new Headers(request.headers);
         headers.delete("content-length");

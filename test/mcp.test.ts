@@ -10,10 +10,15 @@ const BASE = "https://searchscope-ai-visibility-mcp.searchscope.workers.dev";
 const MCP_HEADERS = { "content-type": "application/json", accept: "application/json, text/event-stream" };
 const INITIALIZE = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "guard-test", version: "1.0.0" } } });
 
+// /mcp fails closed without a client IP, which Cloudflare always sets in production.
+// Each connection gets its own address so per-client limits never couple tests.
+let clientNumber = 0;
+const nextClientIp = () => `198.51.100.${++clientNumber}`;
+
 /** A raw POST to /mcp, for checks that need headers or bodies the MCP client would never send. */
 function post(url: string, body: BodyInit, headers: Record<string, string> = {}): Promise<Response> {
   // Service-binding requests carry no Host header; production requests always do.
-  return SELF.fetch(new Request(url, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(url).host, ...headers }, body }));
+  return SELF.fetch(new Request(url, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(url).host, "cf-connecting-ip": nextClientIp(), ...headers }, body }));
 }
 
 /** A body with no Content-Length header, delivered in 1 KB chunks. */
@@ -34,12 +39,14 @@ function streamOf(text: string): ReadableStream<Uint8Array> {
 
 async function connect(): Promise<Client> {
   const client = new Client({ name: "test-client", version: "1.0.0" });
+  const clientIp = nextClientIp();
   const transport = new StreamableHTTPClientTransport(new URL(`${BASE}/mcp`), {
     // Service-binding requests carry no Host header; production requests always do, so add it here.
     fetch: ((input: RequestInfo | URL, init?: RequestInit) => {
       const req = input instanceof Request ? input : new Request(input, init);
       const headers = new Headers(req.headers);
       headers.set("host", new URL(req.url).host);
+      headers.set("cf-connecting-ip", clientIp);
       return SELF.fetch(new Request(req, { headers }));
     }) as typeof fetch,
   });
@@ -134,17 +141,18 @@ describe("request guards on /mcp", () => {
     const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "audit_ai_visibility", arguments: { url: SITE } } };
     // A valid tool call padded past 32 KB, sent chunked with no Content-Length.
     const padded = JSON.stringify(call).replace(/}$/, `,"pad":"${"x".repeat(40_000)}"}`);
-    const req = new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host }, body: streamOf(padded) });
+    const req = new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host, "cf-connecting-ip": nextClientIp() }, body: streamOf(padded) });
     expect(req.headers.get("content-length")).toBeNull();
     const res = await SELF.fetch(req);
     expect(res.status).toBe(413);
     expect(log).toEqual([]);
     // The same route still accepts a small chunked body.
-    expect((await SELF.fetch(new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host }, body: streamOf(INITIALIZE) }))).status).toBe(200);
+    expect((await SELF.fetch(new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host, "cf-connecting-ip": nextClientIp() }, body: streamOf(INITIALIZE) }))).status).toBe(200);
   });
 
   it("refuses tool arguments with more elements than any real input has", async () => {
-    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "audit_ai_visibility", arguments: { url: SITE, junk: Array.from({ length: 100 }, (_, i) => i) } } };
+    // A different site from the fixture, so this call does not spend the fixture's per-target budget.
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "audit_ai_visibility", arguments: { url: "https://elements.example.org/", junk: Array.from({ length: 100 }, (_, i) => i) } } };
     const res = await post(`${BASE}/mcp`, JSON.stringify(call), { "mcp-protocol-version": "2025-11-25" });
     expect(await res.text()).toMatch(/more than the maximum of 32 elements/);
     expect(log).toEqual([]);

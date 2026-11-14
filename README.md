@@ -112,7 +112,7 @@ The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, 
 
 ## 5. Deployment
 
-The Worker has no bindings or secrets. Two options:
+The Worker has no secrets and no storage. Its only bindings are the four rate limiters declared in `wrangler.jsonc`, which deploy with it and need no setup beyond a `namespace_id` that no other Worker on the account uses. Two options:
 
 **Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. This is how the production Worker is deployed, which is why `.github/workflows/deploy.yml` only runs typecheck and tests.
 
@@ -153,7 +153,12 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 10. `/mcp` only answers on its own hostnames (`SERVICE_HOSTNAMES` in `src/config.ts`) and loopback, so a DNS name rebound to the Worker or to `wrangler dev` cannot reach a tool. Browser `Origin` policy: a request with no `Origin` (desktop apps, editors, server-side connectors, `mcp-remote`) is accepted; a well-formed `http` or `https` origin is accepted from any site, so browser-based MCP clients work; `Origin: null`, browser-extension schemes and malformed values get a 403. Accepting any web origin is deliberate for a free public server: it is unauthenticated, read-only and stateless, sets no cookies and holds no credentials, so a cross-site page can learn nothing it could not fetch itself, and browser traffic counts against the same rate limits as everything else.
 11. Reports quote text from the audited site (headings, opening paragraphs, JSON-LD). Treat that quoted text as untrusted data, not as instructions: a hostile site can put anything in its own copy.
 
-There is no authentication. `/mcp` is rate limited inside the Worker on every hostname, using the Workers rate limiting binding: 60 requests a minute per client IP and 1,200 a minute in total, per Cloudflare location. Over the limit the server returns HTTP 429 with `retry-after: 60`.
+There is no authentication. `/mcp` is rate limited inside the Worker on every hostname, using the Workers rate limiting binding:
+
+- 60 requests a minute per client IP and 1,200 a minute in total, for all `/mcp` traffic;
+- on top of that, 20 tool calls a minute per client IP, and 10 tool calls a minute per audited site (hostname without `www.`), so many clients together cannot point the Worker at one website. Tool calls are recognised from the parsed JSON-RPC body, not from headers, and a JSON-RPC batch may carry only one tool call (400 otherwise), because each call starts its own crawl.
+
+These limits are counted separately in each Cloudflare location and are approximate, so they bound abuse rather than enforce an exact worldwide quota. Over a limit the server returns HTTP 429 with `retry-after: 60`. The limiter fails closed: if a binding is missing, a limiter errors, or a public-hostname request arrives without `cf-connecting-ip`, `/mcp` returns 503 rather than serving unmetered. Only a loopback request (`wrangler dev`) may lack the client IP, and it is still counted under a shared local key.
 
 ## 9. Privacy behaviour
 
