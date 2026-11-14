@@ -261,6 +261,15 @@ export function normaliseTargetUrl(input: string): URL {
  * website. Does not touch the network.
  */
 export function assertPublicHostSyntax(url: URL): void {
+  // Checked here as well as in normaliseTargetUrl so that every redirect hop,
+  // discovered page and sitemap URL is held to the default ports, not just the
+  // initial target.
+  if (url.protocol !== "http:" && url.protocol !== "https:") {
+    throw new TargetError("unsupported_scheme", `Only http and https URLs are supported (got ${url.protocol}).`);
+  }
+  if (url.port && url.port !== "80" && url.port !== "443") {
+    throw new TargetError("blocked_port", "Only the default http/https ports are allowed.");
+  }
   const host = url.hostname;
   const bare = host.startsWith("[") ? host.slice(1, -1) : host;
   if (isIpLiteral(bare)) {

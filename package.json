@@ -14,14 +14,14 @@
     "inspector": "npx @modelcontextprotocol/inspector"
   },
   "dependencies": {
-    "@modelcontextprotocol/server": "2.0.0",
-    "agents": "0.23.0",
-    "zod": "^4.2.0"
+    "@modelcontextprotocol/server": "2.4.0",
+    "agents": "0.32.0",
+    "zod": "^4.6.6"
   },
   "devDependencies": {
     "@cloudflare/vitest-pool-workers": "^0.22.0",
     "@cloudflare/workers-types": "^5.20260911.1",
-    "@modelcontextprotocol/client": "2.0.0",
+    "@modelcontextprotocol/client": "2.4.0",
     "typescript": "^5.9.0",
     "vitest": "^4.1.0",
     "wrangler": "^4.131.0"

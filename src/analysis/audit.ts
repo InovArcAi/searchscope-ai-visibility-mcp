@@ -6,6 +6,9 @@ import { inferCategory, monitoringPrompts, type GeoQuery } from "./queries";
 import { aggregateRating, analysePageRetrievability, type PageRetrievability } from "./retrievability";
 import { buildSiteModel, COUNTRIES, EVIDENCE_RE, isAmbiguousAnchor, REGIONS, roleLabel, type Rating, type SiteModel } from "./site";
 
+/** Offerings are scraped page text, so they must never be used as a raw pattern. */
+export const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+
 export interface AuditReport {
   target: string;
   auditedAt: string;
@@ -269,8 +272,8 @@ export function buildAudit(crawl: CrawlResult): AuditReport {
   const intents: AuditReport["commercialCoverage"]["likelyIntents"] = [];
   const coveredBy = (pred: (p: SiteModel["pages"][number]) => boolean): string | null => site.pages.find(pred)?.finalUrl ?? null;
   for (const o of offerings.slice(0, 5)) {
-    intents.push({ intent: `${o}${primaryLoc ? ` in ${primaryLoc}` : ""} (commercial)`, coveredBy: coveredBy((p) => (p.role === "service" || p.role === "product") && new RegExp(o.split(" ")[0] ?? o, "i").test(p.parsed.title)) });
-    intents.push({ intent: `${o} cost / pricing`, coveredBy: coveredBy((p) => /\$\s?\d|pricing|price/i.test(p.parsed.paragraphs.join(" ")) && new RegExp(o.split(" ")[0] ?? o, "i").test(p.parsed.title)) });
+    intents.push({ intent: `${o}${primaryLoc ? ` in ${primaryLoc}` : ""} (commercial)`, coveredBy: coveredBy((p) => (p.role === "service" || p.role === "product") && new RegExp(escapeRegExp(o.split(" ")[0] ?? o), "i").test(p.parsed.title)) });
+    intents.push({ intent: `${o} cost / pricing`, coveredBy: coveredBy((p) => /\$\s?\d|pricing|price/i.test(p.parsed.paragraphs.join(" ")) && new RegExp(escapeRegExp(o.split(" ")[0] ?? o), "i").test(p.parsed.title)) });
   }
   intents.push({ intent: `best ${category}${primaryLoc ? ` ${primaryLoc}` : ""} (recommendation)`, coveredBy: coveredBy((p) => p.role === "case-study") ?? coveredBy((p) => p.parsed.testimonialElements > 0) });
   intents.push({ intent: `${site.brand.value} reviews (trust)`, coveredBy: coveredBy((p) => p.parsed.testimonialElements > 0 || /review|testimonial/i.test(p.parsed.title)) });
