@@ -89,9 +89,9 @@ The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, 
 
 The Worker has no bindings or secrets. Two options:
 
-**Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. If you use this, delete the `deploy` job from `.github/workflows/deploy.yml` so the Worker is not deployed twice.
+**Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. This is how the production Worker is deployed, which is why `.github/workflows/deploy.yml` only runs typecheck and tests.
 
-**Option B: GitHub Actions.** Add repository secrets `CLOUDFLARE_API_TOKEN` (template "Edit Cloudflare Workers") and `CLOUDFLARE_ACCOUNT_ID`. The workflow runs typecheck and tests on every push and PR, and deploys on pushes to `main`.
+**Option B: GitHub Actions.** Add a deploy job using `cloudflare/wrangler-action` and repository secrets `CLOUDFLARE_API_TOKEN` (template "Edit Cloudflare Workers") and `CLOUDFLARE_ACCOUNT_ID`. Do not combine this with Option A, or the Worker deploys twice.
 
 **Manual.** `npx wrangler login && npm run deploy`.
 
