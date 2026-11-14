@@ -1,5 +1,6 @@
 import type { SiteModel, Confidence } from "./site";
 import { EDU_TYPES, ORG_TYPES, stripBrandSuffix } from "./site";
+import { quoted } from "./siteText";
 
 export interface EntityRelationship {
   subject: string;
@@ -62,7 +63,7 @@ export function buildEntityMap(site: SiteModel): EntityMap {
     .filter((b) => b.confidence !== "low")
     .filter((b, i, all) => !all.some((other, j) => j < i && (norm(other.value).includes(norm(b.value)) || norm(b.value).includes(norm(other.value)))));
   if (distinctBrands.length > 1) {
-    ambiguities.push(`Brand name is stated inconsistently: ${distinctBrands.map((b) => `"${b.value}" (${b.source})`).join(" vs ")}. Pick one canonical name and use it in schema, og:site_name, title suffix and footer.`);
+    ambiguities.push(`Brand name is stated inconsistently: ${distinctBrands.map((b) => `${quoted(b.value, 120)} (${b.source})`).join(" vs ")}. Pick one canonical name and use it in schema, og:site_name, title suffix and footer.`);
   }
   if (site.brand.confidence === "low") ambiguities.push("No explicit organisation name found in schema, og:site_name or repeated title suffix; the brand entity is inferred from the domain name only.");
   if (strongLocs.length === 0 && (site.phones.length > 0 || LOCAL_BUSINESS_HINT.test(site.offerings.map((o) => o.value).join(" ")))) {
@@ -80,7 +81,7 @@ export function buildEntityMap(site: SiteModel): EntityMap {
   if (homeH1.length === 0) ambiguities.push("Homepage has no H1, so the page's primary topic is not declared.");
   if (homeH1.length > 1) ambiguities.push(`Homepage has ${homeH1.length} H1 headings, which splits the page's declared topic.`);
   if (site.brand.confidence !== "low" && site.home && !new RegExp(site.brand.value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "i").test(`${site.home.parsed.title} ${site.home.parsed.headings.h1.join(" ")} ${site.home.parsed.paragraphs.slice(0, 3).join(" ")}`)) {
-    ambiguities.push(`The brand name "${site.brand.value}" does not appear in the homepage title, H1 or opening copy.`);
+    ambiguities.push(`The brand name ${quoted(site.brand.value, 120)} does not appear in the homepage title, H1 or opening copy.`);
   }
 
   const missing: string[] = [];

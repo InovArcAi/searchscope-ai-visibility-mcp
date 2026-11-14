@@ -1,6 +1,7 @@
 import type { CrawlResult, CrawledPage, PageRole } from "../crawl/crawler";
 import type { ParsedPage } from "../parse/types";
 import { countWords } from "../parse/html";
+import { quoted } from "./siteText";
 
 export type Confidence = "high" | "medium" | "low";
 export type Rating = "Strong" | "Moderate" | "Weak";
@@ -327,7 +328,7 @@ export function buildSiteModel(crawl: CrawlResult): SiteModel {
     let phrase = (m[1] ?? "").replace(/\s(?:and|&)$/, "").trim();
     // The capture can run past a sentence boundary and pick up the next word.
     phrase = phrase.replace(/\s+(We|You|Our|Your|They|It|This|That|The)$/, "").trim();
-    if (looksLikePlace(phrase)) pushLoc(phrase, "medium", `"${m[0].slice(0, 40)}" in copy`);
+    if (looksLikePlace(phrase)) pushLoc(phrase, "medium", `${quoted(m[0], 40)} in copy`);
   }
   // A repeated slug prefix across several pages ("handyman-belconnen",
   // "handyman-curtin", "handyman-gungahlin") is a suburb landing-page network.

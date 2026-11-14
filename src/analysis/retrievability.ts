@@ -1,6 +1,7 @@
 import type { Block, ParsedPage } from "../parse/types";
 import { countWords } from "../parse/html";
 import type { Rating } from "./site";
+import { quoted } from "./siteText";
 
 /**
  * AI retrievability: can an answer engine lift a clear, self-contained passage
@@ -210,7 +211,7 @@ export function analysePageRetrievability(page: ParsedPage): PageRetrievability 
   const questionHeadings = qa.length;
   const directAnswers = qa.filter((q) => q.verdict === "direct").length;
   for (const q of qa) {
-    if (q.verdict !== "direct") issues.push(`"${q.question}" -> ${q.verdict}: ${q.reason}`);
+    if (q.verdict !== "direct") issues.push(`${quoted(q.question)} -> ${q.verdict}: ${q.reason}`);
   }
 
   // Heading quality

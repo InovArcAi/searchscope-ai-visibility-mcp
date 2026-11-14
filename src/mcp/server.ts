@@ -4,6 +4,7 @@ import { buildAudit } from "../analysis/audit";
 import { buildEntityMap } from "../analysis/entities";
 import { buildQueryUniverse, inferCategory } from "../analysis/queries";
 import { renderAudit, renderEntityMap, renderQueries } from "../analysis/render";
+import { stripInvisibleDeep } from "../analysis/siteText";
 import { buildSiteModel, COUNTRIES, REGIONS } from "../analysis/site";
 import { LIMITS, PUBLISHER_URL, SERVER_INSTRUCTIONS, SERVICE_DESCRIPTION, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "../config";
 import { crawlSite, type CrawlResult } from "../crawl/crawler";
@@ -159,7 +160,7 @@ export function createServer(deps: ServerDeps = {}): McpServer {
           return errorResult(`The homepage could not be analysed: ${home?.fetch.errorDetail ?? home?.fetch.error ?? "no usable HTML"}. Nothing to audit.`);
         }
         const report = buildAudit(crawl);
-        return { content: [{ type: "text", text: renderAudit(report) }], structuredContent: report as unknown as Record<string, unknown> };
+        return { content: [{ type: "text", text: renderAudit(report) }], structuredContent: stripInvisibleDeep(report) as unknown as Record<string, unknown> };
       } catch (e) {
         return errorResult(describeError(e));
       }
@@ -190,7 +191,7 @@ export function createServer(deps: ServerDeps = {}): McpServer {
         const site = buildSiteModel(crawl);
         const map = buildEntityMap(site);
         const structured = { target: crawl.target, pagesSampled: site.pages.length, ...map };
-        return { content: [{ type: "text", text: renderEntityMap(crawl.target, map) }], structuredContent: structured as unknown as Record<string, unknown> };
+        return { content: [{ type: "text", text: renderEntityMap(crawl.target, map) }], structuredContent: stripInvisibleDeep(structured) as unknown as Record<string, unknown> };
       } catch (e) {
         return errorResult(describeError(e));
       }
@@ -235,7 +236,7 @@ export function createServer(deps: ServerDeps = {}): McpServer {
         const groups: Record<string, typeof queries> = {};
         for (const q of queries) (groups[q.intent] ??= []).push(q);
         const structured = { target: crawl.target, brand: site.brand.value, category, location: loc, servicesUsed: services.slice(0, 6), count: queries.length, queries, groups };
-        return { content: [{ type: "text", text: renderQueries(crawl.target, { brand: site.brand.value, category, location: loc, services }, queries) }], structuredContent: structured as unknown as Record<string, unknown> };
+        return { content: [{ type: "text", text: renderQueries(crawl.target, { brand: site.brand.value, category, location: loc, services }, queries) }], structuredContent: stripInvisibleDeep(structured) as unknown as Record<string, unknown> };
       } catch (e) {
         return errorResult(describeError(e));
       }
