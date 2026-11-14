@@ -19,6 +19,18 @@
     // clients together cannot turn the Worker on one website.
     { "name": "MCP_RATE_LIMIT_PER_TARGET", "namespace_id": "4104", "simple": { "limit": 10, "period": 60 } }
   ],
+  // Branch and pull-request Previews (`wrangler preview`, run by Workers Builds)
+  // need their own bindings. Separate namespace IDs keep preview traffic out of
+  // the production counters. /mcp answers 403 on preview hostnames anyway (see
+  // SERVICE_HOSTNAMES), so these only have to exist for the build to succeed.
+  "previews": {
+    "ratelimits": [
+      { "name": "MCP_RATE_LIMIT_PER_IP", "namespace_id": "4201", "simple": { "limit": 60, "period": 60 } },
+      { "name": "MCP_RATE_LIMIT_GLOBAL", "namespace_id": "4202", "simple": { "limit": 1200, "period": 60 } },
+      { "name": "MCP_RATE_LIMIT_TOOL_CALLS_PER_IP", "namespace_id": "4203", "simple": { "limit": 20, "period": 60 } },
+      { "name": "MCP_RATE_LIMIT_PER_TARGET", "namespace_id": "4204", "simple": { "limit": 10, "period": 60 } }
+    ]
+  },
   "observability": {
     "enabled": true,
     "head_sampling_rate": 0.2
