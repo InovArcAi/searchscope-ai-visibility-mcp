@@ -7,14 +7,15 @@
   "workers_dev": true,
   // Rate limits for the public /mcp endpoint, applied in src/index.ts on every
   // hostname (custom domain and workers.dev). Counted per Cloudflare location,
-  // not worldwide, and approximate. All four are required: /mcp returns 503
+  // not worldwide, and approximate. All three are required: /mcp returns 503
   // if any is missing. namespace_id values are account-wide; a value shared
   // with another Worker would share its counters.
   "ratelimits": [
+    // Per client IP, weighted: any /mcp request costs 1, a tools/call (which
+    // crawls up to 15 pages) costs 3 in total (LIMITS.toolCallWeight), so a
+    // client gets at most 20 tool calls a minute.
     { "name": "MCP_RATE_LIMIT_PER_IP", "namespace_id": "4101", "simple": { "limit": 60, "period": 60 } },
     { "name": "MCP_RATE_LIMIT_GLOBAL", "namespace_id": "4102", "simple": { "limit": 1200, "period": 60 } },
-    // tools/call only (each one crawls up to 15 pages), keyed by client IP.
-    { "name": "MCP_RATE_LIMIT_TOOL_CALLS_PER_IP", "namespace_id": "4103", "simple": { "limit": 20, "period": 60 } },
     // tools/call only, keyed by the audited hostname (www. stripped), so many
     // clients together cannot turn the Worker on one website.
     { "name": "MCP_RATE_LIMIT_PER_TARGET", "namespace_id": "4104", "simple": { "limit": 10, "period": 60 } }
@@ -27,7 +28,6 @@
     "ratelimits": [
       { "name": "MCP_RATE_LIMIT_PER_IP", "namespace_id": "4201", "simple": { "limit": 60, "period": 60 } },
       { "name": "MCP_RATE_LIMIT_GLOBAL", "namespace_id": "4202", "simple": { "limit": 1200, "period": 60 } },
-      { "name": "MCP_RATE_LIMIT_TOOL_CALLS_PER_IP", "namespace_id": "4203", "simple": { "limit": 20, "period": 60 } },
       { "name": "MCP_RATE_LIMIT_PER_TARGET", "namespace_id": "4204", "simple": { "limit": 10, "period": 60 } }
     ]
   },

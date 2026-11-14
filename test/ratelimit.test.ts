@@ -17,17 +17,28 @@ const toolCall = (id: number, url: string) => ({ jsonrpc: "2.0", id, method: "to
 
 interface FakeLimiter {
   keys: string[];
-  limit(options: { key: string }): Promise<{ success: boolean }>;
+  deltas: number[];
+  limit(options: { key: string; delta?: number }): Promise<{ success: boolean }>;
 }
 
-/** Allows the first `allow` calls, then refuses. Records every key it was asked about. */
+/**
+ * Mirrors the binding's semantics with a budget of `allow` units: a call is
+ * allowed while the units already spent are below the budget, even if its
+ * delta takes the total past it. Records every key and delta it was asked about.
+ */
 function limiter(allow = Infinity): FakeLimiter {
   const keys: string[] = [];
+  const deltas: number[] = [];
+  let spent = 0;
   return {
     keys,
-    async limit({ key }) {
+    deltas,
+    async limit({ key, delta = 1 }) {
       keys.push(key);
-      return { success: keys.length <= allow };
+      deltas.push(delta);
+      if (spent >= allow) return { success: false };
+      spent += delta;
+      return { success: true };
     },
   };
 }
@@ -36,7 +47,6 @@ function bindings(overrides: Partial<Record<string, FakeLimiter | undefined>> = 
   return {
     MCP_RATE_LIMIT_PER_IP: limiter(),
     MCP_RATE_LIMIT_GLOBAL: limiter(),
-    MCP_RATE_LIMIT_TOOL_CALLS_PER_IP: limiter(),
     MCP_RATE_LIMIT_PER_TARGET: limiter(),
     ...overrides,
   };
@@ -65,7 +75,7 @@ describe("rate limits on /mcp", () => {
   });
 
   it("fails closed with 503 when any limiter binding is missing", async () => {
-    for (const name of ["MCP_RATE_LIMIT_PER_IP", "MCP_RATE_LIMIT_GLOBAL", "MCP_RATE_LIMIT_TOOL_CALLS_PER_IP", "MCP_RATE_LIMIT_PER_TARGET"]) {
+    for (const name of ["MCP_RATE_LIMIT_PER_IP", "MCP_RATE_LIMIT_GLOBAL", "MCP_RATE_LIMIT_PER_TARGET"]) {
       const res = await call(bindings({ [name]: undefined }), INITIALIZE);
       expect(res.status, name).toBe(503);
       expect(res.headers.get("retry-after")).toBe("60");
@@ -84,7 +94,7 @@ describe("rate limits on /mcp", () => {
   });
 
   it("fails closed with 503 when a limiter throws", async () => {
-    const broken = { keys: [], limit: () => Promise.reject(new Error("limiter down")) };
+    const broken = { keys: [], deltas: [], limit: () => Promise.reject(new Error("limiter down")) };
     expect((await call(bindings({ MCP_RATE_LIMIT_GLOBAL: broken }), INITIALIZE)).status).toBe(503);
     const throwsSync = { keys: [], limit: () => { throw new Error("bad options"); } } as unknown as FakeLimiter;
     expect((await call(bindings({ MCP_RATE_LIMIT_PER_IP: throwsSync }), INITIALIZE)).status).toBe(503);
@@ -97,22 +107,36 @@ describe("rate limits on /mcp", () => {
     expect((await call(bindings({ MCP_RATE_LIMIT_GLOBAL: limiter(0) }), INITIALIZE)).status).toBe(429);
   });
 
-  it("charges tool calls to the client and to the audited site, and nothing else", async () => {
+  it("weights tool calls in the client's budget and charges the audited site, and nothing else", async () => {
     const env = bindings();
     expect((await call(env, INITIALIZE)).status).toBe(200);
     expect((await call(env, { jsonrpc: "2.0", id: 2, method: "tools/list" })).status).toBe(200);
-    expect(env.MCP_RATE_LIMIT_TOOL_CALLS_PER_IP!.keys).toEqual([]);
+    expect(env.MCP_RATE_LIMIT_PER_IP!.deltas).toEqual([1, 1]);
     expect(env.MCP_RATE_LIMIT_PER_TARGET!.keys).toEqual([]);
     expect((await call(env, toolCall(3, SITE))).status).toBe(200);
     expect((await call(env, toolCall(4, "acmeplumbing.com.au"))).status).toBe(200);
-    expect(env.MCP_RATE_LIMIT_TOOL_CALLS_PER_IP!.keys).toEqual(["203.0.113.7", "203.0.113.7"]);
+    // Each tool call costs 1 at the door plus 2 once it is recognised: 3 in total.
+    expect(env.MCP_RATE_LIMIT_PER_IP!.deltas).toEqual([1, 1, 1, 2, 1, 2]);
+    expect(new Set(env.MCP_RATE_LIMIT_PER_IP!.keys)).toEqual(new Set(["203.0.113.7"]));
     // www and bare domain share one per-target budget.
     expect(env.MCP_RATE_LIMIT_PER_TARGET!.keys).toEqual(["acmeplumbing.com.au", "acmeplumbing.com.au"]);
-    expect(env.MCP_RATE_LIMIT_PER_IP!.keys.length).toBe(4);
+    expect(env.MCP_RATE_LIMIT_GLOBAL!.deltas).toEqual([1, 1, 1, 1]);
+  });
+
+  it("allows exactly 20 tool calls a minute from one client on a 60-unit budget", async () => {
+    const env = bindings({ MCP_RATE_LIMIT_PER_IP: limiter(60) });
+    const statuses: number[] = [];
+    for (let i = 0; i < 20; i++) statuses.push((await call(env, toolCall(100 + i, `https://site${i}.example.com`))).status);
+    expect(statuses.every((s) => s !== 429)).toBe(true);
+    // The 21st is refused at the door, before anything is fetched.
+    log.length = 0;
+    expect((await call(env, toolCall(120, SITE))).status).toBe(429);
+    expect(log).toEqual([]);
   });
 
   it("refuses a tool call with 429 once the client or the site budget is spent, before fetching anything", async () => {
-    const perClient = await call(bindings({ MCP_RATE_LIMIT_TOOL_CALLS_PER_IP: limiter(0) }), toolCall(5, SITE));
+    // One unit left: the door charge passes, the tool-call weight does not.
+    const perClient = await call(bindings({ MCP_RATE_LIMIT_PER_IP: limiter(1) }), toolCall(5, SITE));
     expect(perClient.status).toBe(429);
     const perSite = await call(bindings({ MCP_RATE_LIMIT_PER_TARGET: limiter(0) }), toolCall(6, SITE));
     expect(perSite.status).toBe(429);
@@ -131,7 +155,7 @@ describe("rate limits on /mcp", () => {
     const res = await call(env, modern, { headers: { "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "generate_geo_query_universe" } });
     expect(res.status).toBe(200);
     expect(await res.text()).toContain("GEO query universe");
-    expect(env.MCP_RATE_LIMIT_TOOL_CALLS_PER_IP!.keys).toEqual(["203.0.113.7"]);
+    expect(env.MCP_RATE_LIMIT_PER_IP!.deltas).toEqual([1, 2]);
     expect(env.MCP_RATE_LIMIT_PER_TARGET!.keys).toEqual(["acmeplumbing.com.au"]);
   });
 
@@ -160,7 +184,8 @@ describe("rate limits on /mcp", () => {
     const res = await call(env, [toolCall(7, SITE), toolCall(8, SITE)]);
     expect(res.status).toBe(400);
     expect(await res.text()).toContain("one tools/call per request");
-    expect(env.MCP_RATE_LIMIT_TOOL_CALLS_PER_IP!.keys).toEqual([]);
+    // Only the door charge was spent; no tool-call weight for a refused batch.
+    expect(env.MCP_RATE_LIMIT_PER_IP!.deltas).toEqual([1]);
     expect(log).toEqual([]);
   });
 });

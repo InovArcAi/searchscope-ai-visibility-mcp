@@ -33,6 +33,12 @@ export const LIMITS = {
   maxRequestBodyBytes: 32_768,
   /** Maximum array elements plus object members in one tools/call `arguments` payload. The largest real input has four fields. */
   maxToolInputElements: 32,
+  /**
+   * Units a tools/call spends from the per-client budget (MCP_RATE_LIMIT_PER_IP,
+   * 60 a minute), against 1 for any other /mcp request. Each call crawls up to
+   * 15 pages, so 3 caps a client at 20 tool calls a minute.
+   */
+  toolCallWeight: 3,
   /** Longest readable report text before it is shortened (the footer is always kept). A full audit is usually well under 20,000. */
   maxReportChars: 60_000,
   /** Query universe defaults. */

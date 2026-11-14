@@ -7,12 +7,10 @@ import { isAcceptableOrigin, readBodyCapped, targetKey, toolCallsIn } from "./se
 interface Env {
   /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
   DEV_ALLOW_LOOPBACK_TARGETS?: string;
-  /** Per-client limit on /mcp requests (see wrangler.jsonc `ratelimits`). */
+  /** Per-client budget on /mcp (see wrangler.jsonc `ratelimits`): every request costs 1, a tools/call costs LIMITS.toolCallWeight in total. */
   MCP_RATE_LIMIT_PER_IP?: RateLimit;
   /** Ceiling on all /mcp traffic, so a crawler or loop cannot exhaust the account's Workers quota. */
   MCP_RATE_LIMIT_GLOBAL?: RateLimit;
-  /** Per-client limit on tools/call, the only requests that crawl a site. */
-  MCP_RATE_LIMIT_TOOL_CALLS_PER_IP?: RateLimit;
   /** Per audited hostname, so the Worker cannot be used to hammer one website from many clients. */
   MCP_RATE_LIMIT_PER_TARGET?: RateLimit;
 }
@@ -268,8 +266,8 @@ export default {
       // Cloudflare always sets cf-connecting-ip in production; only a loopback
       // request (wrangler dev) may fall back to a shared local key.
       const clientIp = request.headers.get("cf-connecting-ip") ?? (isLoopbackHost(url.hostname) ? "loopback" : null);
-      const { MCP_RATE_LIMIT_PER_IP: perIp, MCP_RATE_LIMIT_GLOBAL: global, MCP_RATE_LIMIT_TOOL_CALLS_PER_IP: toolsPerIp, MCP_RATE_LIMIT_PER_TARGET: perTarget } = env;
-      if (!clientIp || !perIp || !global || !toolsPerIp || !perTarget) return unavailable();
+      const { MCP_RATE_LIMIT_PER_IP: perIp, MCP_RATE_LIMIT_GLOBAL: global, MCP_RATE_LIMIT_PER_TARGET: perTarget } = env;
+      if (!clientIp || !perIp || !global || !perTarget) return unavailable();
       const allowed = await withinLimits([() => perIp.limit({ key: clientIp }), () => global.limit({ key: "mcp" })]);
       if (allowed !== true) return allowed;
 
@@ -277,15 +275,17 @@ export default {
       if (request.body && request.method !== "GET" && request.method !== "HEAD") {
         const bytes = await readBodyCapped(request.body, LIMITS.maxRequestBodyBytes);
         if (!bytes) return bodyTooLarge();
-        // Tool calls are what cost outbound fetches, so they carry their own
-        // limits: per client, and per audited site so the Worker cannot be
-        // pointed at one website as a load generator. JSON-RPC batches would
-        // let one request start many crawls, so a batch may hold one call.
+        // Tool calls are what cost outbound fetches, so they weigh more in the
+        // client's budget (the rest of LIMITS.toolCallWeight, on top of the 1
+        // already charged above) and are also charged per audited site, so the
+        // Worker cannot be pointed at one website as a load generator. JSON-RPC
+        // batches would let one request start many crawls, so a batch may hold
+        // one call.
         const calls = toolCallsIn(bytes);
         if (calls.length > 1) return rpcError(400, -32600, "Send one tools/call per request.");
         const call = calls[0];
         if (call) {
-          const checks = [() => toolsPerIp.limit({ key: clientIp })];
+          const checks = [() => perIp.limit({ key: clientIp, delta: LIMITS.toolCallWeight - 1 })];
           const target = call.target;
           if (target) checks.push(() => perTarget.limit({ key: target }));
           const toolAllowed = await withinLimits(checks);
