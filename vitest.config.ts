@@ -1,5 +1,5 @@
 import { defineConfig } from "vitest/config";
-import { cloudflareTest } from "@cloudflare/vitest-pool-workers";
+import { cloudflareTest } from "@cloudflare/vitest-plugin";
 
 // Tests run inside the Workers runtime (workerd) via Miniflare, so HTMLRewriter,
 // AbortSignal.timeout and the real fetch semantics match production.
