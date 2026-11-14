@@ -53,7 +53,7 @@ export const SERVICE_TITLE = "Search Scope AI Visibility Auditor";
 /** Canonical public origin. Metadata always points here, whichever hostname served the request. */
 export const SERVICE_ORIGIN = "https://mcp.searchscope.com.au";
 /**
- * The only hostnames `/mcp` answers on: the custom domain and the Worker's
+ * The only hostnames `/mcp` and `/api/v1` answer on: the custom domain and the Worker's
  * workers.dev address. Loopback hosts are also accepted for local development.
  * A new custom domain must be added here or its `/mcp` requests get a 403.
  */
