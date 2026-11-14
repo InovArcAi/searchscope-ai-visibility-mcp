@@ -4,7 +4,33 @@ import { StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { createFakeFetch, SITE } from "./helpers/fakeSite";
 
-const BASE = "https://auditor.example.workers.dev";
+// /mcp only answers on the hostnames in SERVICE_HOSTNAMES, so tests use the real workers.dev one.
+const BASE = "https://searchscope-ai-visibility-mcp.searchscope.workers.dev";
+
+const MCP_HEADERS = { "content-type": "application/json", accept: "application/json, text/event-stream" };
+const INITIALIZE = JSON.stringify({ jsonrpc: "2.0", id: 1, method: "initialize", params: { protocolVersion: "2025-11-25", capabilities: {}, clientInfo: { name: "guard-test", version: "1.0.0" } } });
+
+/** A raw POST to /mcp, for checks that need headers or bodies the MCP client would never send. */
+function post(url: string, body: BodyInit, headers: Record<string, string> = {}): Promise<Response> {
+  // Service-binding requests carry no Host header; production requests always do.
+  return SELF.fetch(new Request(url, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(url).host, ...headers }, body }));
+}
+
+/** A body with no Content-Length header, delivered in 1 KB chunks. */
+function streamOf(text: string): ReadableStream<Uint8Array> {
+  const bytes = new TextEncoder().encode(text);
+  let offset = 0;
+  return new ReadableStream({
+    pull(controller) {
+      if (offset >= bytes.length) {
+        controller.close();
+        return;
+      }
+      controller.enqueue(bytes.slice(offset, offset + 1024));
+      offset += 1024;
+    },
+  });
+}
 
 async function connect(): Promise<Client> {
   const client = new Client({ name: "test-client", version: "1.0.0" });
@@ -66,6 +92,62 @@ describe("HTTP surface", () => {
     expect((await SELF.fetch(`${BASE}/nope`)).status).toBe(404);
     const big = await SELF.fetch(`${BASE}/mcp`, { method: "POST", headers: { "content-type": "application/json", "content-length": "99999999" }, body: "{}" });
     expect(big.status).toBe(413);
+  });
+});
+
+describe("request guards on /mcp", () => {
+  let log: string[];
+  beforeEach(() => {
+    log = [];
+    vi.stubGlobal("fetch", createFakeFetch({ log }));
+  });
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it("answers only on its own hostnames and loopback", async () => {
+    for (const origin of ["https://mcp.searchscope.com.au", BASE, "http://localhost:8787", "http://127.0.0.1:8787"]) {
+      expect((await post(`${origin}/mcp`, INITIALIZE)).status, origin).toBe(200);
+    }
+    for (const origin of ["https://rebound.example.net", "https://someone-else.workers.dev", "https://mcp.searchscope.com.au.evil.net"]) {
+      const res = await post(`${origin}/mcp`, INITIALIZE);
+      expect(res.status, origin).toBe(403);
+      expect(await res.text()).toContain("Host not allowed");
+    }
+    // Static pages are not protocol endpoints and stay reachable.
+    expect((await SELF.fetch("https://rebound.example.net/health")).status).toBe(200);
+  });
+
+  it("accepts no Origin or any well-formed web origin, and refuses malformed or opaque ones", async () => {
+    expect((await post(`${BASE}/mcp`, INITIALIZE)).status).toBe(200);
+    for (const origin of ["https://claude.ai", "http://localhost:6274", "https://inspector.example.com:8443", "https://claude.ai/"]) {
+      expect((await post(`${BASE}/mcp`, INITIALIZE, { origin })).status, origin).toBe(200);
+    }
+    for (const origin of ["null", "not a url", "chrome-extension://abcdefghijklmnop", "file://", "https://claude.ai/some/path", "https://user@claude.ai", "https://claude.ai?x=1", "ftp://example.com"]) {
+      const res = await post(`${BASE}/mcp`, INITIALIZE, { origin });
+      expect(res.status, origin).toBe(403);
+      expect(await res.text()).toContain("Origin not allowed");
+    }
+  });
+
+  it("enforces the body limit on the bytes received, not on Content-Length", async () => {
+    const call = { jsonrpc: "2.0", id: 2, method: "tools/call", params: { name: "audit_ai_visibility", arguments: { url: SITE } } };
+    // A valid tool call padded past 32 KB, sent chunked with no Content-Length.
+    const padded = JSON.stringify(call).replace(/}$/, `,"pad":"${"x".repeat(40_000)}"}`);
+    const req = new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host }, body: streamOf(padded) });
+    expect(req.headers.get("content-length")).toBeNull();
+    const res = await SELF.fetch(req);
+    expect(res.status).toBe(413);
+    expect(log).toEqual([]);
+    // The same route still accepts a small chunked body.
+    expect((await SELF.fetch(new Request(`${BASE}/mcp`, { method: "POST", headers: { ...MCP_HEADERS, host: new URL(BASE).host }, body: streamOf(INITIALIZE) }))).status).toBe(200);
+  });
+
+  it("refuses tool arguments with more elements than any real input has", async () => {
+    const call = { jsonrpc: "2.0", id: 3, method: "tools/call", params: { name: "audit_ai_visibility", arguments: { url: SITE, junk: Array.from({ length: 100 }, (_, i) => i) } } };
+    const res = await post(`${BASE}/mcp`, JSON.stringify(call), { "mcp-protocol-version": "2025-11-25" });
+    expect(await res.text()).toMatch(/more than the maximum of 32 elements/);
+    expect(log).toEqual([]);
   });
 });
 

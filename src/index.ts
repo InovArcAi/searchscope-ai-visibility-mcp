@@ -1,7 +1,8 @@
 import { createMcpHandler } from "agents/mcp/server";
 import { decodeBase64, FAVICON_SVG, ICON_512_PNG_BASE64, LOGO_PNG_BASE64 } from "./brand/assets";
-import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
+import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_HOSTNAMES, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
 import { createServer } from "./mcp/server";
+import { isAcceptableOrigin, readBodyCapped } from "./security/request";
 
 interface Env {
   /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
@@ -18,6 +19,12 @@ function rateLimited(): Response {
     { status: 429, headers: { "retry-after": "60" } },
   );
 }
+
+function rpcError(status: number, code: number, message: string): Response {
+  return Response.json({ jsonrpc: "2.0", error: { code, message }, id: null }, { status });
+}
+
+const bodyTooLarge = (): Response => rpcError(413, -32600, "Request body too large.");
 
 const TOOLS = [
   { name: "audit_ai_visibility", summary: "Full AI search / GEO readiness audit of a public website: entity clarity, retrievability, information gain, trust, architecture, structured data, commercial coverage, top 10 actions and 20 prompts to monitor." },
@@ -44,14 +51,16 @@ function getHandler(): ReturnType<typeof createMcpHandler> {
     {
       route: "/mcp",
       // The SDK's default Origin allow-list only covers localhost and the
-      // endpoint's own workers.dev hostname, so a browser-based MCP client, or
-      // any client at all once this runs on a custom domain, can be rejected
-      // before it reaches a tool. Origin locking is a defence against a web page
-      // driving a *local* server that holds credentials or private data. This
-      // server has neither: it is public, unauthenticated by design, read-only,
-      // and stores nothing between requests, so there is nothing an origin could
-      // steal. Accept any origin and let the SSRF rules do the real work.
+      // endpoint's own workers.dev hostname, which would reject browser-based
+      // MCP clients and every browser on the custom domain. Origin and Host are
+      // validated in the Worker before this handler runs (see
+      // isAcceptableOrigin and SERVICE_HOSTNAMES), which is the condition the
+      // SDK documents for passing "*" here.
       allowedOriginHostnames: "*",
+      // Second layer only: the Worker already enforces the limit on the bytes
+      // received, and the agents wrapper does not pass this option to its
+      // legacy lane.
+      maxRequestBodySize: LIMITS.maxRequestBodyBytes,
     },
   );
   return mcpHandler;
@@ -208,10 +217,18 @@ export default {
     }
 
     if (url.pathname === "/mcp") {
-      const len = Number(request.headers.get("content-length") ?? "0");
-      if (Number.isFinite(len) && len > LIMITS.maxRequestBodyBytes) {
-        return Response.json({ jsonrpc: "2.0", error: { code: -32600, message: "Request body too large." }, id: null }, { status: 413 });
+      // Only our own hostnames serve the protocol, so a DNS name rebound to
+      // this Worker (or to wrangler dev on localhost) cannot reach a tool.
+      if (!isLoopbackHost(url.hostname) && !SERVICE_HOSTNAMES.includes(url.hostname)) {
+        return rpcError(403, -32000, "Host not allowed.");
       }
+      if (!isAcceptableOrigin(request.headers.get("origin"))) {
+        return rpcError(403, -32000, "Origin not allowed.");
+      }
+      // Fast path for an honest Content-Length; the real cap is applied to the
+      // bytes read below.
+      const len = Number(request.headers.get("content-length") ?? "0");
+      if (Number.isFinite(len) && len > LIMITS.maxRequestBodyBytes) return bodyTooLarge();
       // The endpoint is public and unauthenticated, and one audit can fan out to
       // about 20 outbound fetches. Cloudflare always sets cf-connecting-ip in
       // production; it is absent only in local tests and wrangler dev.
@@ -223,7 +240,17 @@ export default {
         ]);
         if (!perIp.success || !global.success) return rateLimited();
       }
-      return getHandler()(request, env, ctx);
+      let forward = request;
+      if (request.body && request.method !== "GET" && request.method !== "HEAD") {
+        const bytes = await readBodyCapped(request.body, LIMITS.maxRequestBodyBytes);
+        if (!bytes) return bodyTooLarge();
+        // The handler gets the exact bytes received, now with a known length.
+        const headers = new Headers(request.headers);
+        headers.delete("content-length");
+        headers.delete("transfer-encoding");
+        forward = new Request(request.url, { method: request.method, headers, body: bytes, signal: request.signal });
+      }
+      return getHandler()(forward, env, ctx);
     }
 
     if (url.pathname === "/health") {

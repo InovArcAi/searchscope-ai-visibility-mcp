@@ -131,7 +131,9 @@ export function createServer(deps: ServerDeps = {}): McpServer {
         { src: `${SERVICE_ORIGIN}/favicon.svg`, mimeType: "image/svg+xml", sizes: ["any"] },
       ],
     },
-    { instructions: SERVER_INSTRUCTIONS },
+    // Every tool takes at most four scalar fields; a payload with hundreds of
+    // nested elements is refused before schema validation spends time on it.
+    { instructions: SERVER_INSTRUCTIONS, maxToolInputElements: LIMITS.maxToolInputElements },
   );
 
   server.registerTool(

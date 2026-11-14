@@ -23,8 +23,10 @@ export const LIMITS = {
   maxChildSitemaps: 3,
   /** Maximum URLs retained from sitemaps before prioritisation. */
   maxSitemapUrls: 500,
-  /** Maximum size of an inbound MCP request body. */
+  /** Maximum size of an inbound MCP request body, measured on the bytes received rather than the Content-Length header. */
   maxRequestBodyBytes: 32_768,
+  /** Maximum array elements plus object members in one tools/call `arguments` payload. The largest real input has four fields. */
+  maxToolInputElements: 32,
   /** Query universe defaults. */
   defaultQueryCount: 40,
   maxQueryCount: 100,
@@ -36,6 +38,12 @@ export const SERVICE_VERSION = "1.0.0";
 export const SERVICE_TITLE = "Search Scope AI Visibility Auditor";
 /** Canonical public origin. Metadata always points here, whichever hostname served the request. */
 export const SERVICE_ORIGIN = "https://mcp.searchscope.com.au";
+/**
+ * The only hostnames `/mcp` answers on: the custom domain and the Worker's
+ * workers.dev address. Loopback hosts are also accepted for local development.
+ * A new custom domain must be added here or its `/mcp` requests get a 403.
+ */
+export const SERVICE_HOSTNAMES: readonly string[] = ["mcp.searchscope.com.au", "searchscope-ai-visibility-mcp.searchscope.workers.dev"];
 export const SERVICE_DESCRIPTION =
   "Audits any public website for AI search visibility: entity clarity, AI retrievability, trust signals, internal linking and structured data, with ranked fixes and AI search prompts to monitor. Free and read-only, from Search Scope, an SEO consultancy in Perth, Western Australia.";
 /** Sent to clients as the server's instructions during initialisation. */

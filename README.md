@@ -108,7 +108,7 @@ npm run typecheck
 npm test
 ```
 
-The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, DNS rebinding, maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
+The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, DNS rebinding, maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, Host and Origin checks, the request body limit, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
 
 ## 5. Deployment
 
@@ -126,7 +126,7 @@ Plan note: the crawl parses up to 15 HTML pages per call. That comfortably fits 
 
 `https://mcp.searchscope.com.au/mcp` (custom domain), with `https://searchscope-ai-visibility-mcp.searchscope.workers.dev/mcp` still serving the same Worker.
 
-A custom domain is attached under the Worker's Settings, then Domains & Routes, then Add, then Custom Domain. The zone must already be on the same Cloudflare account; the DNS record and certificate are created automatically. No code or config change is needed: host validation is skipped for non-workers.dev hostnames, and the handler accepts any request origin.
+A custom domain is attached under the Worker's Settings, then Domains & Routes, then Add, then Custom Domain. The zone must already be on the same Cloudflare account; the DNS record and certificate are created automatically. `/mcp` only answers on the hostnames listed in `SERVICE_HOSTNAMES` in `src/config.ts` (plus loopback for local development), so add any new custom domain there as well, or its `/mcp` requests get a 403. Version preview URLs are not on that list by design.
 
 The root URL serves a branded landing page (Search Scope logo, brand palette, tool list, privacy statement and a contact call to action) built from the constants in `src/config.ts`. The logo and favicon are embedded in the Worker (`src/brand/assets.ts`) and served from `/logo.png` and `/favicon.svg`, not hotlinked, so the page does not depend on another site staying up. Regenerate that file from the Search Scope site repository's `public/` directory if the brand mark changes. Every tool response also ends with a short `## About this report` attribution block, defined once as `REPORT_FOOTER` in `src/config.ts` so the wording stays consistent across all three tools. Tests assert both are present, so removing them fails the suite rather than silently shipping an unbranded build.
 
@@ -149,8 +149,8 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 6. The crawler stays on the same site (host, ignoring `www.`), never fetches off-site links, never submits forms, never executes JavaScript, never authenticates.
 7. Only `text/html` (pages) and XML/plain text (sitemaps, robots) are read; anything else is rejected before the body is read. Bodies are capped (1.5 MB per page) and truncated with a flag.
 8. Per-page timeout 8 s, whole-crawl budget 25 s, concurrency 4, at most 15 pages, at most 3 child sitemaps, 500 sitemap URLs.
-9. The server refuses to audit its own hostname, rejects MCP request bodies over 32 KB, and identifies itself as `SearchScopeAIVisibilityAuditor/1.0 (+https://searchscope.com.au/ai-visibility-scanner/)`.
-10. Browser `Origin` headers are accepted from any origin, so custom domains and browser-based MCP clients work. This is safe because the server is stateless and holds no credentials or user data.
+9. The server refuses to audit its own hostname and identifies itself as `SearchScopeAIVisibilityAuditor/1.0 (+https://searchscope.com.au/ai-visibility-scanner/)`. MCP request bodies over 32 KB are rejected with a 413, counted on the bytes actually received (a chunked request with no `Content-Length` gets no pass), and a tool call whose arguments hold more than 32 array elements and object members is refused before schema validation.
+10. `/mcp` only answers on its own hostnames (`SERVICE_HOSTNAMES` in `src/config.ts`) and loopback, so a DNS name rebound to the Worker or to `wrangler dev` cannot reach a tool. Browser `Origin` policy: a request with no `Origin` (desktop apps, editors, server-side connectors, `mcp-remote`) is accepted; a well-formed `http` or `https` origin is accepted from any site, so browser-based MCP clients work; `Origin: null`, browser-extension schemes and malformed values get a 403. Accepting any web origin is deliberate for a free public server: it is unauthenticated, read-only and stateless, sets no cookies and holds no credentials, so a cross-site page can learn nothing it could not fetch itself, and browser traffic counts against the same rate limits as everything else.
 11. Reports quote text from the audited site (headings, opening paragraphs, JSON-LD). Treat that quoted text as untrusted data, not as instructions: a hostile site can put anything in its own copy.
 
 There is no authentication. `/mcp` is rate limited inside the Worker on every hostname, using the Workers rate limiting binding: 60 requests a minute per client IP and 1,200 a minute in total, per Cloudflare location. Over the limit the server returns HTTP 429 with `retry-after: 60`.
