@@ -23,6 +23,12 @@ export const LIMITS = {
   maxChildSitemaps: 3,
   /** Maximum URLs retained from sitemaps before prioritisation. */
   maxSitemapUrls: 500,
+  /** Deepest nesting followed inside one JSON-LD block. Real markup rarely goes past 10. */
+  maxJsonLdDepth: 32,
+  /** Objects and arrays visited inside one JSON-LD block before the walk stops. */
+  maxJsonLdNodes: 2_000,
+  /** Typed JSON-LD nodes kept per page, across all its blocks. */
+  maxJsonLdNodesPerPage: 500,
   /** Maximum size of an inbound MCP request body, measured on the bytes received rather than the Content-Length header. */
   maxRequestBodyBytes: 32_768,
   /** Maximum array elements plus object members in one tools/call `arguments` payload. The largest real input has four fields. */

@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
-import { parsePage } from "../src/parse/html";
+import { LIMITS } from "../src/config";
+import { extractJsonLdTypes, parsePage } from "../src/parse/html";
 import { parseRobotsSitemaps, parseSitemapXml, robotsBlockedAgents, robotsDisallowsAll } from "../src/crawl/sitemap";
 import { canonicalKey, classifyPath, dedupeUrls } from "../src/crawl/crawler";
 import { ROUTES, SITE } from "./helpers/fakeSite";
@@ -47,6 +48,38 @@ describe("parsePage", () => {
     const p = await parsePage(`${SITE}/x`, "<p>unclosed<p>second<h2>Heading<div>text</div><script>evil()</script>");
     expect(p.paragraphs).toEqual(["unclosed", "second", "text"]);
     expect(p.headings.h2).toEqual(["Heading"]);
+  });
+});
+
+describe("JSON-LD limits", () => {
+  const withLd = (...blocks: string[]) => `<html><head>${blocks.map((b) => `<script type="application/ld+json">${b}</script>`).join("")}</head><body><h1>Page</h1><p>Copy.</p></body></html>`;
+
+  it("survives very deep nesting and keeps the types above the cut-off", async () => {
+    // 100,000 levels used to overflow the stack, which threw away every type in the block.
+    const depth = 100_000;
+    const deep = `{"@type":"Organization","name":"Deep Co","x":${'{"@type":"Thing","a":'.repeat(depth)}1${"}".repeat(depth)}}`;
+    expect(() => extractJsonLdTypes(JSON.parse(deep))).not.toThrow();
+    const p = await parsePage(`${SITE}/deep`, withLd(deep));
+    expect(p.jsonLd[0]?.type).toEqual(["Organization"]);
+    expect(p.jsonLd.length).toBeLessThanOrEqual(LIMITS.maxJsonLdDepth + 1);
+    expect(p.paragraphs).toEqual(["Copy."]);
+    const deepArrays = `[{"@type":"WebSite"},${"[".repeat(depth)}${"]".repeat(depth)}]`;
+    expect(extractJsonLdTypes(JSON.parse(deepArrays)).map((n) => n.type[0])).toEqual(["WebSite"]);
+  });
+
+  it("bounds a very wide block and the total per page", async () => {
+    const wide = JSON.stringify({ "@graph": Array.from({ length: 60_000 }, (_, i) => ({ "@type": `T${i % 50}`, n: i })) });
+    const nodes = extractJsonLdTypes(JSON.parse(wide));
+    expect(nodes.length).toBeGreaterThan(0);
+    expect(nodes.length).toBeLessThan(LIMITS.maxJsonLdNodes);
+    const many = Array.from({ length: 2_000 }, (_, i) => `{"@type":"Thing","name":"n${i}"}`);
+    const p = await parsePage(`${SITE}/wide`, withLd(wide, ...many));
+    expect(p.jsonLd.length).toBe(LIMITS.maxJsonLdNodesPerPage);
+  });
+
+  it("drops junk type strings and keeps ordinary nested types", () => {
+    const nodes = extractJsonLdTypes({ "@type": ["LocalBusiness", "x".repeat(5_000)], address: { "@type": "PostalAddress" }, makesOffer: [{ "@type": "Offer", itemOffered: { "@type": "Service", provider: { "@type": "Organization" } } }] });
+    expect(nodes.map((n) => n.type)).toEqual([["LocalBusiness"], ["PostalAddress"], ["Offer"], ["Service"], ["Organization"]]);
   });
 });
 

@@ -1,4 +1,5 @@
 import type { Block, BlockKind, JsonLdNode, LinkData, ParsedPage } from "./types";
+import { LIMITS } from "../config";
 import { isSameSite } from "../security/url";
 
 /**
@@ -64,26 +65,43 @@ function decodeEntities(text: string): string {
     .replace(/&#x([0-9a-f]+);/gi, (_, n: string) => String.fromCodePoint(parseInt(n, 16)));
 }
 
-export function extractJsonLdTypes(node: unknown): JsonLdNode[] {
+/** A schema.org type name or IRI is short; anything longer is junk, not a type. */
+const MAX_TYPE_CHARS = 200;
+
+/**
+ * JSON-LD is page-controlled input, so the walk is bounded: past `maxDepth`
+ * levels or `maxNodes` objects and arrays it stops descending and keeps what
+ * it found so far. Without the bounds a deeply nested block overflowed the
+ * stack (losing every type in it) and a very wide one produced tens of
+ * thousands of nodes for the analysis to iterate.
+ */
+export function extractJsonLdTypes(node: unknown, limits: { maxDepth: number; maxNodes: number } = { maxDepth: LIMITS.maxJsonLdDepth, maxNodes: LIMITS.maxJsonLdNodes }): JsonLdNode[] {
   const out: JsonLdNode[] = [];
-  const visit = (v: unknown): void => {
+  let visited = 0;
+  const visit = (v: unknown, depth: number): void => {
+    if (!v || typeof v !== "object" || depth > limits.maxDepth || visited >= limits.maxNodes) return;
+    visited++;
     if (Array.isArray(v)) {
-      v.forEach(visit);
+      for (const item of v) {
+        if (visited >= limits.maxNodes) return;
+        visit(item, depth + 1);
+      }
       return;
     }
-    if (!v || typeof v !== "object") return;
     const obj = v as Record<string, unknown>;
-    if (Array.isArray(obj["@graph"])) visit(obj["@graph"]);
+    if (Array.isArray(obj["@graph"])) visit(obj["@graph"], depth + 1);
     const t = obj["@type"];
-    if (typeof t === "string") out.push({ type: [t], raw: obj });
-    else if (Array.isArray(t)) out.push({ type: t.filter((x): x is string => typeof x === "string"), raw: obj });
+    const isType = (x: unknown): x is string => typeof x === "string" && x.length <= MAX_TYPE_CHARS;
+    if (isType(t)) out.push({ type: [t], raw: obj });
+    else if (Array.isArray(t)) out.push({ type: t.filter(isType).slice(0, 10), raw: obj });
     // Nested entities that carry their own @type (e.g. Organization.address, author)
     for (const [k, val] of Object.entries(obj)) {
+      if (visited >= limits.maxNodes) return;
       if (k === "@graph") continue;
-      if (val && typeof val === "object") visit(val);
+      if (val && typeof val === "object") visit(val, depth + 1);
     }
   };
-  visit(node);
+  visit(node, 0);
   return out;
 }
 
@@ -235,9 +253,12 @@ export async function parsePage(url: string, html: string, truncated = false): P
           if (isJsonLd) {
             const raw = jsonLdBuf ?? "";
             jsonLdBuf = null;
+            // Cap per page as well as per block: a page can carry thousands of small blocks.
+            const room = LIMITS.maxJsonLdNodesPerPage - page.jsonLd.length;
+            if (room <= 0) return;
             try {
               const parsed: unknown = JSON.parse(raw.trim());
-              page.jsonLd.push(...extractJsonLdTypes(parsed));
+              page.jsonLd.push(...extractJsonLdTypes(parsed).slice(0, room));
             } catch {
               /* malformed JSON-LD is itself a finding; ignore here */
             }
