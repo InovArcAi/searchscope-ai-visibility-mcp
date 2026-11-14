@@ -2,7 +2,7 @@ import { createExecutionContext, waitOnExecutionContext } from "cloudflare:test"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import worker from "../src/index";
 import { targetKey, toolCallsIn } from "../src/security/request";
-import { createFakeFetch, SITE } from "./helpers/fakeSite";
+import { createFakeFetch, DNS, ROUTES, SITE } from "./helpers/fakeSite";
 
 /**
  * The Worker is called directly with fake limiter bindings, so each branch
@@ -42,9 +42,9 @@ function bindings(overrides: Partial<Record<string, FakeLimiter | undefined>> = 
   };
 }
 
-async function call(env: ReturnType<typeof bindings>, body: unknown, opts: { origin?: string; ip?: string | null } = {}): Promise<Response> {
+async function call(env: ReturnType<typeof bindings>, body: unknown, opts: { origin?: string; ip?: string | null; headers?: Record<string, string> } = {}): Promise<Response> {
   const origin = opts.origin ?? PROD;
-  const headers: Record<string, string> = { ...HEADERS, host: new URL(origin).host };
+  const headers: Record<string, string> = { ...HEADERS, host: new URL(origin).host, ...opts.headers };
   if (opts.ip !== null) headers["cf-connecting-ip"] = opts.ip ?? "203.0.113.7";
   const ctx = createExecutionContext();
   const res = await worker.fetch(new Request(`${origin}/mcp`, { method: "POST", headers, body: JSON.stringify(body) }), env as never, ctx);
@@ -117,6 +117,42 @@ describe("rate limits on /mcp", () => {
     const perSite = await call(bindings({ MCP_RATE_LIMIT_PER_TARGET: limiter(0) }), toolCall(6, SITE));
     expect(perSite.status).toBe(429);
     expect(log).toEqual([]);
+  });
+
+  it("charges a 2026-07-28 envelope tool call the same way, and serves it", async () => {
+    // Modern requests carry their envelope in params._meta; method stays at the top level.
+    const envelope = {
+      "io.modelcontextprotocol/protocolVersion": "2026-07-28",
+      "io.modelcontextprotocol/clientCapabilities": {},
+      "io.modelcontextprotocol/clientInfo": { name: "modern-client", version: "1.0.0" },
+    };
+    const env = bindings();
+    const modern = { jsonrpc: "2.0", id: 9, method: "tools/call", params: { name: "generate_geo_query_universe", arguments: { url: SITE, count: 10 }, _meta: envelope } };
+    const res = await call(env, modern, { headers: { "mcp-protocol-version": "2026-07-28", "mcp-method": "tools/call", "mcp-name": "generate_geo_query_universe" } });
+    expect(res.status).toBe(200);
+    expect(await res.text()).toContain("GEO query universe");
+    expect(env.MCP_RATE_LIMIT_TOOL_CALLS_PER_IP!.keys).toEqual(["203.0.113.7"]);
+    expect(env.MCP_RATE_LIMIT_PER_TARGET!.keys).toEqual(["acmeplumbing.com.au"]);
+  });
+
+  it("charges the per-site limit again when the homepage redirects to another site", async () => {
+    const log: string[] = [];
+    vi.stubGlobal("fetch", createFakeFetch({
+      log,
+      routes: { ...ROUTES, "https://redirector.example.net/": { status: 301, headers: { location: `${SITE}/` } } },
+      dns: { ...DNS, "redirector.example.net": ["93.184.216.40"] },
+    }));
+    // Allowed: both the redirecting domain and the site it lands on are charged.
+    const env = bindings();
+    expect((await call(env, toolCall(10, "https://redirector.example.net/"))).status).toBe(200);
+    expect(env.MCP_RATE_LIMIT_PER_TARGET!.keys).toEqual(["redirector.example.net", "acmeplumbing.com.au"]);
+    // Refused: the landing site's budget is spent, so nothing past its homepage is fetched.
+    log.length = 0;
+    const spent = bindings({ MCP_RATE_LIMIT_PER_TARGET: limiter(1) });
+    const res = await call(spent, toolCall(11, "https://redirector.example.net/"));
+    expect(await res.text()).toMatch(/rate limit reached for www\.acmeplumbing\.com\.au/);
+    const pagesFetched = log.filter((u) => !u.includes("cloudflare-dns.com"));
+    expect(pagesFetched).toEqual(["https://redirector.example.net/", `${SITE}/`]);
   });
 
   it("refuses a JSON-RPC batch carrying more than one tool call", async () => {

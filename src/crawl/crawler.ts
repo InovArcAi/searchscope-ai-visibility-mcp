@@ -34,6 +34,12 @@ export interface CrawlOptions {
   maxPages?: number;
   budgetMs?: number;
   concurrency?: number;
+  /**
+   * Called when the homepage redirects to a different site, with that site's
+   * hostname, before anything else on it is fetched. Returning false stops the
+   * crawl, so a redirecting domain cannot be used to dodge the per-site limit.
+   */
+  chargeRedirectTarget?: (hostname: string) => Promise<boolean>;
 }
 
 /** Normalise for de-duplication: lowercase host, drop hash, tracking params, trailing "index.html", trailing slash. */
@@ -177,6 +183,9 @@ export async function crawlSite(inputUrl: string, opts: CrawlOptions): Promise<C
   if (!isSameSite(homeUrl, target)) {
     // The site redirected to a different registrable domain; audit that one instead
     // (it passed validation on the way) but keep the crawl pinned to it.
+    if (opts.chargeRedirectTarget && !(await opts.chargeRedirectTarget(homeUrl.hostname))) {
+      throw new Error(`rate limit reached for ${homeUrl.hostname}, which ${target.hostname} redirects to. Please wait a minute and try again.`);
+    }
     result.origin = homeUrl.origin;
   }
   const homePage = await parsePage(homeFetch.finalUrl, homeFetch.body, homeFetch.truncated);

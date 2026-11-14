@@ -17,6 +17,8 @@ export interface ServerDeps {
   devAllowLoopbackTargets?: boolean;
   /** Override outbound fetch (tests). */
   fetchImpl?: typeof fetch;
+  /** Charges the per-site rate limit when a homepage redirects to another site (see CrawlOptions). */
+  chargeRedirectTarget?: (hostname: string) => Promise<boolean>;
 }
 
 const urlField = z
@@ -112,6 +114,7 @@ async function crawlFor(url: string, maxPages: number | undefined, deps: ServerD
     policy: makePolicy(deps),
     fetchImpl: deps.fetchImpl,
     maxPages: maxPages ?? LIMITS.defaultMaxPages,
+    chargeRedirectTarget: deps.chargeRedirectTarget,
   });
 }
 
@@ -143,7 +146,7 @@ export function createServer(deps: ServerDeps = {}): McpServer {
       title: "Audit AI search visibility (GEO readiness)",
       description: [
         "Audit a public website for AI search / GEO readiness by fetching and analysing a small prioritised sample of its pages (homepage, about, services or products, pricing, locations, key guides).",
-        "Returns ten sections plus a page-by-page rewrite section: A executive summary, B entity clarity, C AI retrievability (are answers in clear self-contained passages), D information gain (first-party data, research, case studies actually present on the site), E trust and corroboration signals, F internal linking and architecture, G structured data found and relevant omissions, H commercial query coverage and gaps, I top 10 recommended actions ranked by commercial impact then visibility impact then ease, J 20 AI search prompts to monitor. Findings that can be acted on come with the offending text quoted verbatim and a prefilled replacement: rewritten opening paragraphs, opening sentences for question headings that do not answer, specific internal links to add with suggested anchor text, and a ready-to-paste JSON-LD block. Anything the crawl did not observe is left as a clearly marked [placeholder] rather than invented.",
+        "Returns ten sections plus a page-by-page rewrite section: A executive summary, B entity clarity, C AI retrievability (are answers in clear self-contained passages), D information gain (first-party data, research, case studies actually present on the site), E trust and corroboration signals, F internal linking and architecture, G structured data found and relevant omissions, H commercial query coverage and gaps, I top 10 recommended actions ranked by commercial impact then visibility impact then ease, J 20 AI search prompts to monitor. Findings that can be acted on come with the offending text quoted from the page and a prefilled replacement: rewritten opening paragraphs, opening sentences for question headings that do not answer, specific internal links to add with suggested anchor text, and a ready-to-paste JSON-LD block. Anything the crawl did not observe is left as a clearly marked [placeholder] rather than invented.",
         "Use it when a user asks how ready a site is for ChatGPT, Claude, Perplexity, Gemini or Google AI Overviews, wants a GEO or AI SEO audit, or wants prioritised on-site fixes.",
         "It does NOT measure real citations or rankings inside any AI assistant, does not use paid data sources, does not execute JavaScript, and never invents evidence: everything reported is observed on the fetched pages or explicitly labelled as an inferred gap. Ratings are qualitative (Strong / Moderate / Weak) with the rubric returned in the response.",
         `Parameters: url (required), maxPages (optional, default ${LIMITS.defaultMaxPages}, max ${LIMITS.hardMaxPages}). Only public http/https hosts are accepted. A full audit typically takes 5 to 25 seconds.`,

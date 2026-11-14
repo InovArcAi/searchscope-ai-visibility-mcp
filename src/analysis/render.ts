@@ -116,7 +116,7 @@ export function renderAudit(r: AuditReport): string {
   const f = r.fixes;
   if (f.openings.length || f.answers.length || f.links.length || f.schemaSnippet) {
     push("## I2. Page-by-page rewrites");
-    push("Current text is quoted verbatim. Anything in [square brackets] is a blank for you to fill: the auditor will not invent a fact it did not read on the page.");
+    push("Current text is quoted from the page (long passages shortened, double quotes inside it shown as single quotes). Anything in [square brackets] is a blank for you to fill: the auditor will not invent a fact it did not read on the page.");
     for (const o of f.openings) {
       push();
       push(`### Opening paragraph: ${url(o.url)}`);

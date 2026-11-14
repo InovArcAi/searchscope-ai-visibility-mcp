@@ -2,7 +2,7 @@ import { createMcpHandler } from "agents/mcp/server";
 import { decodeBase64, FAVICON_SVG, ICON_512_PNG_BASE64, LOGO_PNG_BASE64 } from "./brand/assets";
 import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_DESCRIPTION, SERVICE_HOSTNAMES, SERVICE_NAME, SERVICE_ORIGIN, SERVICE_TITLE, SERVICE_VERSION } from "./config";
 import { createServer } from "./mcp/server";
-import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
+import { isAcceptableOrigin, readBodyCapped, targetKey, toolCallsIn } from "./security/request";
 
 interface Env {
   /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
@@ -59,14 +59,26 @@ function isLoopbackHost(hostname: string): boolean {
 
 let mcpHandler: ReturnType<typeof createMcpHandler> | undefined;
 let devLoopback = false;
+/** The per-site limiter, for sites reached by a cross-site homepage redirect. Bindings are the same object for every request in an isolate. */
+let perTargetLimiter: RateLimit | undefined;
 
 function getHandler(): ReturnType<typeof createMcpHandler> {
   mcpHandler ??= createMcpHandler(
     (ctx) => {
       const reqUrl = ctx.requestInfo ? new URL(ctx.requestInfo.url) : undefined;
+      const limiter = perTargetLimiter;
       return createServer({
         selfHostnames: reqUrl ? [reqUrl.hostname] : undefined,
         devAllowLoopbackTargets: devLoopback && Boolean(reqUrl && isLoopbackHost(reqUrl.hostname)),
+        chargeRedirectTarget: async (hostname) => {
+          const key = targetKey(hostname);
+          if (!limiter || !key) return false;
+          try {
+            return (await limiter.limit({ key })).success;
+          } catch {
+            return false; // fail closed, as at the front door
+          }
+        },
       });
     },
     {
@@ -217,6 +229,7 @@ Published by <a href="${PUBLISHER_URL}">${PUBLISHER}</a>, ${PUBLISHER_LOCATION}.
 export default {
   async fetch(request: Request, env: Env, ctx: ExecutionContext): Promise<Response> {
     devLoopback = env.DEV_ALLOW_LOOPBACK_TARGETS === "1";
+    perTargetLimiter = env.MCP_RATE_LIMIT_PER_TARGET;
     const url = new URL(request.url);
 
     if (url.pathname === "/mcp/server-card" || url.pathname === "/.well-known/mcp/server-card.json") {
