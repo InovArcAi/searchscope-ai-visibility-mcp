@@ -1,11 +1,10 @@
-name: Test and deploy
+name: Test
 
-# CI runs on every push and pull request. Deployment to Cloudflare Workers runs
-# only for pushes to `main`, and only when the two repository secrets exist:
-#   CLOUDFLARE_API_TOKEN  (Workers Scripts: Edit permission)
-#   CLOUDFLARE_ACCOUNT_ID
-# If you connect the repository to Cloudflare Workers Builds instead, delete the
-# `deploy` job below so the Worker is not deployed twice.
+# CI runs typecheck and tests on every push and pull request.
+# Deployment is handled by Cloudflare Workers Builds, which is connected to this
+# repository and deploys every push to `main`. There is deliberately no deploy
+# job here, so the Worker is never deployed twice and no Cloudflare token lives
+# in GitHub.
 
 on:
   push:
@@ -24,21 +23,3 @@ jobs:
       - run: npm ci --legacy-peer-deps
       - run: npm run typecheck
       - run: npm test
-
-  deploy:
-    needs: test
-    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-      - uses: actions/setup-node@v4
-        with:
-          node-version: 22
-          cache: npm
-      - run: npm ci --legacy-peer-deps
-      - name: Deploy to Cloudflare Workers
-        uses: cloudflare/wrangler-action@v3
-        with:
-          apiToken: ${{ secrets.CLOUDFLARE_API_TOKEN }}
-          accountId: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
-          command: deploy
