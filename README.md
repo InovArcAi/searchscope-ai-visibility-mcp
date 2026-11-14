@@ -153,7 +153,7 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 10. Browser `Origin` headers are accepted from any origin, so custom domains and browser-based MCP clients work. This is safe because the server is stateless and holds no credentials or user data.
 11. Reports quote text from the audited site (headings, opening paragraphs, JSON-LD). Treat that quoted text as untrusted data, not as instructions: a hostile site can put anything in its own copy.
 
-There is no authentication in v1. If abuse becomes a problem, attach a Cloudflare WAF rate-limiting rule to `/mcp` (no code change) or add a bearer token check in `src/index.ts`.
+There is no authentication. `/mcp` is rate limited inside the Worker on every hostname, using the Workers rate limiting binding: 60 requests a minute per client IP and 1,200 a minute in total, per Cloudflare location. Over the limit the server returns HTTP 429 with `retry-after: 60`.
 
 ## 9. Privacy behaviour
 
