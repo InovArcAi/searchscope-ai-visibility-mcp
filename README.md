@@ -101,7 +101,7 @@ npx @modelcontextprotocol/inspector --cli http://localhost:8787/mcp --method too
 npx @modelcontextprotocol/inspector            # web UI; connect with transport "Streamable HTTP" and the /mcp URL
 ```
 
-Automated tests run inside the Workers runtime (workerd) via `@cloudflare/vitest-pool-workers`, so `HTMLRewriter`, timeouts and fetch semantics match production:
+Automated tests run inside the Workers runtime (workerd) via `@cloudflare/vitest-plugin`, so `HTMLRewriter`, timeouts and fetch semantics match production:
 
 ```bash
 npm run typecheck
@@ -222,10 +222,10 @@ All ratings are qualitative (`Strong`, `Moderate`, `Weak`) with deterministic ru
 ## Stack
 
 - Cloudflare Workers, `wrangler` 4, `compatibility_date` 2026-08-22, `nodejs_compat`
-- `agents` 0.23 (`createMcpHandler` from `agents/mcp/server`, the current stateless pattern; no `McpAgent`, no Durable Objects)
-- `@modelcontextprotocol/server` 2.0 with Zod 4 input and output schemas
+- `agents` 0.32 (`createMcpHandler` from `agents/mcp/server`, the current stateless pattern; no `McpAgent`, no Durable Objects)
+- `@modelcontextprotocol/server` 2.4 with Zod 4 input and output schemas
 - Native `HTMLRewriter` for parsing (no JavaScript execution, streaming, no third-party HTML parser)
-- `@cloudflare/vitest-pool-workers` + Vitest 4 for tests
+- `@cloudflare/vitest-plugin` + Vitest 4 for tests
 
 ## Provenance
 
