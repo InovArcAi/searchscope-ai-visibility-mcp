@@ -166,6 +166,7 @@ Any client that supports MCP Streamable HTTP can connect with the endpoint URL a
 - Claude (web or desktop): Settings, Connectors, Add custom connector, paste the `/mcp` URL.
 - Claude Code: `claude mcp add --transport http searchscope-auditor https://mcp.searchscope.com.au/mcp`
 - Cursor / Windsurf / other editors: add an MCP server of type `http` (or `streamable-http`) with the same URL.
+- Hermes Agent: `hermes plugins install InovArcAi/searchscope-ai-visibility-mcp`. The repo root is a portable Agent Plugins v1 package (`plugin.json` plus `mcp.json`) that also ships the `ai-visibility-audit` skill. The server is declared untrusted, so Hermes asks before any write-capable call; all three tools are read-only.
 - Programmatic (TypeScript):
 
 ```ts
