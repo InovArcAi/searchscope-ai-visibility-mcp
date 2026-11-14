@@ -1,12 +1,37 @@
+<p align="center"><a href="https://searchscope.com.au/"><img src="assets/search-scope-logo.png" alt="Search Scope" width="330"></a></p>
+
 # Search Scope AI Visibility Auditor
 
-A remote [MCP](https://modelcontextprotocol.io) server on Cloudflare Workers that lets Claude and other MCP-compatible assistants audit a public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities.
+A free remote [MCP](https://modelcontextprotocol.io) server from [Search Scope](https://searchscope.com.au/) that lets Claude, ChatGPT, Cursor and other MCP-compatible assistants audit a public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities.
 
-Publisher: [Search Scope](https://searchscope.com.au/). Stateless, read-only, no accounts, no database, no paid APIs.
+Stateless, read-only, no accounts, no API key, no database, no paid APIs.
 
-- MCP endpoint (Streamable HTTP): `https://searchscope-ai-visibility-mcp.<your-account>.workers.dev/mcp`
-- Landing page: `/` (HTML, or JSON with `Accept: application/json`)
+- **MCP endpoint (Streamable HTTP):** `https://mcp.searchscope.com.au/mcp`
+- Landing page: [mcp.searchscope.com.au](https://mcp.searchscope.com.au/) (HTML, or JSON with `Accept: application/json`)
 - Health: `/health` returns `{"status":"ok","service":"Search Scope AI Visibility Auditor"}`
+
+Connect it in one line:
+
+```bash
+claude mcp add --transport http searchscope-auditor https://mcp.searchscope.com.au/mcp
+```
+
+## About Search Scope
+
+[Search Scope](https://searchscope.com.au/) is an SEO consultancy in Victoria Park, Perth, Western Australia. It was founded in 2021 by [Dorian Menard](https://www.linkedin.com/in/dorianmenard/), an SEO consultant who has worked in SEO since 2013. Search Scope works with multi-location and national brands across Australia, providing multi-location SEO, national SEO, AI search visibility, Google Business Profile management and Google Maps and local SEO, with no lock-in contracts.
+
+Search Scope built this auditor and runs it as a free public tool. It shows what an AI assistant can and cannot read about a business. If you want the fixes implemented, or ongoing tracking of whether ChatGPT, Gemini, Perplexity and Google AI Overviews actually name your brand, talk to Search Scope.
+
+- Website: [searchscope.com.au](https://searchscope.com.au/)
+- AI Visibility Scanner: [searchscope.com.au/ai-visibility-scanner](https://searchscope.com.au/ai-visibility-scanner/)
+- Book a strategy call: [lunacal.ai/searchscope/30min](https://lunacal.ai/searchscope/30min)
+- Email: [seo@searchscope.com.au](mailto:seo@searchscope.com.au)
+- LinkedIn: [Search Scope](https://www.linkedin.com/company/search-scope/) and [Dorian Menard](https://www.linkedin.com/in/dorianmenard/)
+- YouTube: [@searchscopeseo](https://www.youtube.com/@searchscopeseo)
+- X: [@searchscopeseo](https://x.com/searchscopeseo)
+- Bluesky: [searchscopeseo.bsky.social](https://bsky.app/profile/searchscopeseo.bsky.social)
+- Instagram: [@searchscopeseo](https://www.instagram.com/searchscopeseo)
+- Facebook: [Search Scope](https://www.facebook.com/people/Search-Scope/61568270942475/)
 
 ## 1. What the server does
 
@@ -139,14 +164,14 @@ Public website content is fetched and analysed in memory for the duration of one
 Any client that supports MCP Streamable HTTP can connect with the endpoint URL and no credentials.
 
 - Claude (web or desktop): Settings, Connectors, Add custom connector, paste the `/mcp` URL.
-- Claude Code: `claude mcp add --transport http searchscope-auditor https://<worker>.workers.dev/mcp`
+- Claude Code: `claude mcp add --transport http searchscope-auditor https://mcp.searchscope.com.au/mcp`
 - Cursor / Windsurf / other editors: add an MCP server of type `http` (or `streamable-http`) with the same URL.
 - Programmatic (TypeScript):
 
 ```ts
 import { Client, StreamableHTTPClientTransport } from "@modelcontextprotocol/client";
 const client = new Client({ name: "my-app", version: "1.0.0" });
-await client.connect(new StreamableHTTPClientTransport(new URL("https://<worker>.workers.dev/mcp")));
+await client.connect(new StreamableHTTPClientTransport(new URL("https://mcp.searchscope.com.au/mcp")));
 const result = await client.callTool({ name: "audit_ai_visibility", arguments: { url: "https://example.com.au" } });
 ```
 

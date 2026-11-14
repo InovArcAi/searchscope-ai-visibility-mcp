@@ -1,0 +1,18 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "au.com.searchscope/ai-visibility-auditor",
+  "title": "Search Scope AI Visibility Auditor",
+  "description": "Free AI search visibility audit for any website, by Search Scope, an SEO consultancy in Perth.",
+  "version": "1.0.0",
+  "websiteUrl": "https://searchscope.com.au/",
+  "repository": {
+    "url": "https://github.com/InovArcAi/searchscope-ai-visibility-mcp",
+    "source": "github"
+  },
+  "remotes": [
+    {
+      "type": "streamable-http",
+      "url": "https://mcp.searchscope.com.au/mcp"
+    }
+  ]
+}

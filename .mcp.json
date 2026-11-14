@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "searchscope-ai-visibility": {
+      "type": "http",
+      "url": "https://mcp.searchscope.com.au/mcp"
+    }
+  }
+}

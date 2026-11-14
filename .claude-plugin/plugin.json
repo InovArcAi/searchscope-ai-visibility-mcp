@@ -1,0 +1,14 @@
+{
+  "name": "searchscope-ai-visibility",
+  "description": "Audit any public website for AI search visibility: entity clarity, AI retrievability, trust signals, structured data and the prompts to monitor in ChatGPT, Gemini, Perplexity and Google AI Overviews. Free and read-only, from Search Scope, an SEO consultancy in Perth, Western Australia.",
+  "version": "1.0.0",
+  "author": {
+    "name": "Search Scope",
+    "url": "https://searchscope.com.au/"
+  },
+  "homepage": "https://mcp.searchscope.com.au/",
+  "repository": "https://github.com/InovArcAi/searchscope-ai-visibility-mcp",
+  "license": "MIT",
+  "keywords": ["seo", "ai-seo", "geo", "ai-search", "ai-visibility", "entity-seo", "structured-data", "audit"],
+  "icon": "assets/icon.png"
+}
