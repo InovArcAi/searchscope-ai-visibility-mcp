@@ -9,8 +9,16 @@
  *   3. IP literal deny-list: private, loopback, link-local, CGNAT, multicast, reserved, IPv4-mapped IPv6
  *   4. DNS-over-HTTPS resolution of the hostname and the same IP deny-list on every answer
  *
- * Step 4 is what defeats DNS rebinding style tricks (public hostname resolving to 10.x).
- * If resolution fails, the target is rejected (fail closed).
+ * Step 4 rejects a public hostname whose DNS answers point at private space
+ * (for example 10.x). If resolution fails, the target is rejected (fail closed).
+ *
+ * Step 4 is a pre-flight check, not a pin. Workers fetch() resolves the
+ * hostname again when it connects and cannot be told which IP to use, so a
+ * hostname whose DNS changes between the two lookups (DNS rebinding, a
+ * time-of-check to time-of-use gap) is not stopped by this code alone. Against
+ * that case the server also relies on Cloudflare's outbound network: Worker
+ * subrequests leave from Cloudflare's edge, not from a host that sits on a
+ * private network.
  */
 
 export class TargetError extends Error {

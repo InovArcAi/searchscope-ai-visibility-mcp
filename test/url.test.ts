@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { assertPublicHostSyntax, assertPublicTarget, isBlockedIpLiteral, isSameSite, normaliseTargetUrl, parseIPv6, TargetError } from "../src/security/url";
+import { assertPublicHostSyntax, assertPublicTarget, createDohResolver, isBlockedIpLiteral, isSameSite, normaliseTargetUrl, parseIPv6, TargetError } from "../src/security/url";
 
 const resolveFrom = (table: Record<string, string[]>) => async (h: string) => table[h] ?? [];
 
@@ -63,7 +63,7 @@ describe("assertPublicTarget (DNS layer)", () => {
   it("accepts a host that resolves to a public address", async () => {
     await expect(assertPublicTarget(new URL("https://good.example.org/"), { resolve: resolveFrom({ "good.example.org": ["93.184.216.34"] }) })).resolves.toBeUndefined();
   });
-  it("rejects a host that resolves to a private IPv4 (rebinding)", async () => {
+  it("rejects a host whose DNS answers include a private IPv4", async () => {
     await expect(assertPublicTarget(new URL("https://rebind.example.org/"), { resolve: resolveFrom({ "rebind.example.org": ["93.184.216.34", "10.0.0.1"] }) })).rejects.toThrow(/non-public address/);
   });
   it("rejects a host that resolves to a private IPv6", async () => {
@@ -82,6 +82,54 @@ describe("assertPublicTarget (DNS layer)", () => {
   it("only allows loopback in dev mode", async () => {
     await expect(assertPublicTarget(new URL("http://localhost/"), { resolve: resolveFrom({}) })).rejects.toThrow(TargetError);
     await expect(assertPublicTarget(new URL("http://localhost/"), { resolve: resolveFrom({}), devAllowLoopbackTargets: true })).resolves.toBeUndefined();
+  });
+});
+
+describe("createDohResolver (the DNS check itself)", () => {
+  type Answer = { type: number; data?: unknown; name?: string };
+  /** A fake DNS-over-HTTPS endpoint: per record type, an HTTP status and a JSON body, or a thrown error. */
+  function doh(table: { A?: { Status?: number; Answer?: Answer[] } | number | "throw"; AAAA?: { Status?: number; Answer?: Answer[] } | number | "throw" }, seen: string[] = []): typeof fetch {
+    return (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      seen.push(`${u.hostname}?name=${u.searchParams.get("name")}&type=${u.searchParams.get("type")} accept=${new Headers(init?.headers).get("accept")}`);
+      const entry = table[u.searchParams.get("type") as "A" | "AAAA"] ?? { Status: 0, Answer: [] };
+      if (entry === "throw") throw new TypeError("network down");
+      if (typeof entry === "number") return new Response("upstream error", { status: entry });
+      return Response.json(entry);
+    }) as typeof fetch;
+  }
+  const check = (fetchImpl: typeof fetch) => assertPublicTarget(new URL("https://target.example.org/"), { resolve: createDohResolver(fetchImpl) });
+
+  it("queries Cloudflare DoH for A and AAAA with the JSON accept header", async () => {
+    const seen: string[] = [];
+    await check(doh({ A: { Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] } }, seen));
+    expect(seen.sort()).toEqual([
+      "cloudflare-dns.com?name=target.example.org&type=A accept=application/dns-json",
+      "cloudflare-dns.com?name=target.example.org&type=AAAA accept=application/dns-json",
+    ]);
+  });
+  it("accepts public A and AAAA answers and ignores CNAME records in the chain", async () => {
+    const resolve = createDohResolver(doh({ A: { Status: 0, Answer: [{ type: 5, data: "alias.example.net." }, { type: 1, data: "93.184.216.34" }] }, AAAA: { Status: 0, Answer: [{ type: 28, data: "2606:4700::1111" }] } }));
+    expect(await resolve("target.example.org")).toEqual(["93.184.216.34", "2606:4700::1111"]);
+  });
+  it("rejects a CNAME chain that ends at a private address", async () => {
+    await expect(check(doh({ A: { Status: 0, Answer: [{ type: 5, data: "internal.corp.example." }, { type: 1, data: "10.0.0.7" }] } }))).rejects.toThrow(/non-public address/);
+  });
+  it("rejects when only the AAAA answer is private, including IPv4-mapped forms", async () => {
+    await expect(check(doh({ A: { Status: 0, Answer: [{ type: 1, data: "93.184.216.34" }] }, AAAA: { Status: 0, Answer: [{ type: 28, data: "fd00::1" }] } }))).rejects.toThrow(/non-public address/);
+    await expect(check(doh({ AAAA: { Status: 0, Answer: [{ type: 28, data: "::ffff:10.0.0.1" }] } }))).rejects.toThrow(/non-public address/);
+    await expect(check(doh({ AAAA: { Status: 0, Answer: [{ type: 28, data: "::ffff:169.254.169.254" }] } }))).rejects.toThrow(/non-public address/);
+  });
+  it("fails closed on NXDOMAIN, SERVFAIL, HTTP errors, network errors and malformed bodies", async () => {
+    await expect(check(doh({ A: { Status: 3 }, AAAA: { Status: 3 } }))).rejects.toThrow(/does not resolve/);
+    await expect(check(doh({ A: { Status: 2, Answer: [{ type: 1, data: "93.184.216.34" }] } }))).rejects.toThrow(/does not resolve/);
+    await expect(check(doh({ A: 500, AAAA: 500 }))).rejects.toThrow(/does not resolve/);
+    await expect(check(doh({ A: "throw", AAAA: "throw" }))).rejects.toThrow(/does not resolve/);
+    await expect(check(doh({ A: { Status: 0, Answer: "nope" as unknown as Answer[] } }))).rejects.toThrow(/does not resolve/);
+    await expect(check(doh({ A: { Status: 0, Answer: [{ type: 1, data: 167772161 }] } }))).rejects.toThrow(/does not resolve/);
+  });
+  it("still rejects a private AAAA answer when the A lookup errors", async () => {
+    await expect(check(doh({ A: "throw", AAAA: { Status: 0, Answer: [{ type: 28, data: "fe80::1" }] } }))).rejects.toThrow(/non-public address/);
   });
 });
 

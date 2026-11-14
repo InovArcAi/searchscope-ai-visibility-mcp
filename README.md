@@ -108,7 +108,7 @@ npm run typecheck
 npm test
 ```
 
-The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, DNS rebinding, maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, Host and Origin checks, the request body limit, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
+The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, private IPv6, cloud metadata, credentials, ports), redirect re-validation into private space, hostnames whose DNS answers point at private space, the DNS-over-HTTPS check itself (CNAME chains, AAAA-only and IPv4-mapped answers, NXDOMAIN, HTTP and network failures), maxPages and the hard cap, non-HTML and oversized responses, timeouts, sitemap and robots parsing, link extraction, de-duplication, the HTTP surface, Host and Origin checks, the request body limit, `tools/list`, and every tool called end to end through the official MCP client against an in-memory fixture site.
 
 ## 5. Deployment
 
@@ -144,7 +144,7 @@ The Worker must not be usable as an open proxy. Every URL it fetches (initial ta
 1. Syntax: only `http`/`https`; credentials in the URL rejected; only default ports (checked on the initial target, every redirect hop, every discovered page and every sitemap URL); hostnames only (IP literals rejected, including obfuscated forms the URL parser normalises).
 2. Hostname deny-list: `localhost`, single-label names, `.local`, `.internal`, `.home.arpa`, `.arpa`, `.onion`, `metadata.google.internal` and similar.
 3. IP deny-list: loopback, RFC1918, CGNAT (100.64/10), link-local, multicast, reserved, TEST-NETs, unique-local and link-local IPv6, IPv4-mapped/NAT64/6to4/Teredo embeddings, and known cloud metadata addresses.
-4. DNS resolution through Cloudflare DNS-over-HTTPS with every A/AAAA answer checked against the deny-list. Resolution failure rejects the target (fail closed). This is what stops a public hostname that resolves to a private address.
+4. DNS resolution through Cloudflare DNS-over-HTTPS with every A/AAAA answer checked against the deny-list. Resolution failure rejects the target (fail closed). This stops a public hostname whose DNS answers point at a private address. It is a pre-flight check, not a pin: Workers `fetch()` resolves the hostname again when it connects and cannot be held to the address that was checked, so a hostname whose DNS answer changes between the check and the connection (DNS rebinding) is not stopped by this step alone. For that case the server also relies on Cloudflare's outbound network, since Worker subrequests leave from Cloudflare's edge rather than from a host on a private network.
 5. Redirects are handled manually (`redirect: "manual"`), capped at 5, and each hop is re-validated from step 1.
 6. The crawler stays on the same site (host, ignoring `www.`), never fetches off-site links, never submits forms, never executes JavaScript, never authenticates.
 7. Only `text/html` (pages) and XML/plain text (sitemaps, robots) are read; anything else is rejected before the body is read. Bodies are capped (1.5 MB per page) and truncated with a flag. Embedded JSON-LD is parsed with fixed bounds (32 levels deep, 2,000 objects and arrays per block, 500 typed nodes per page), so a hostile block cannot exhaust the stack or flood the analysis.
