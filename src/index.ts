@@ -6,6 +6,17 @@ import { createServer } from "./mcp/server";
 interface Env {
   /** Development only (wrangler dev --var DEV_ALLOW_LOOPBACK_TARGETS:1). Inert unless the request host is loopback. */
   DEV_ALLOW_LOOPBACK_TARGETS?: string;
+  /** Per-client limit on /mcp requests (see wrangler.jsonc `ratelimits`). */
+  MCP_RATE_LIMIT_PER_IP?: RateLimit;
+  /** Ceiling on all /mcp traffic, so a crawler or loop cannot exhaust the account's Workers quota. */
+  MCP_RATE_LIMIT_GLOBAL?: RateLimit;
+}
+
+function rateLimited(): Response {
+  return Response.json(
+    { jsonrpc: "2.0", error: { code: -32000, message: "Rate limit exceeded. Please wait a minute and try again." }, id: null },
+    { status: 429, headers: { "retry-after": "60" } },
+  );
 }
 
 const TOOLS = [
@@ -144,6 +155,17 @@ export default {
       const len = Number(request.headers.get("content-length") ?? "0");
       if (Number.isFinite(len) && len > LIMITS.maxRequestBodyBytes) {
         return Response.json({ jsonrpc: "2.0", error: { code: -32600, message: "Request body too large." }, id: null }, { status: 413 });
+      }
+      // The endpoint is public and unauthenticated, and one audit can fan out to
+      // about 20 outbound fetches. Cloudflare always sets cf-connecting-ip in
+      // production; it is absent only in local tests and wrangler dev.
+      const clientIp = request.headers.get("cf-connecting-ip");
+      if (clientIp && env.MCP_RATE_LIMIT_PER_IP && env.MCP_RATE_LIMIT_GLOBAL) {
+        const [perIp, global] = await Promise.all([
+          env.MCP_RATE_LIMIT_PER_IP.limit({ key: clientIp }),
+          env.MCP_RATE_LIMIT_GLOBAL.limit({ key: "mcp" }),
+        ]);
+        if (!perIp.success || !global.success) return rateLimited();
       }
       return getHandler()(request, env, ctx);
     }

@@ -5,11 +5,17 @@
   "compatibility_date": "2026-08-22",
   "compatibility_flags": ["nodejs_compat"],
   "workers_dev": true,
+  // Rate limits for the public /mcp endpoint, applied in src/index.ts on every
+  // hostname (custom domain and workers.dev). Counted per Cloudflare location.
+  "ratelimits": [
+    { "name": "MCP_RATE_LIMIT_PER_IP", "namespace_id": "4101", "simple": { "limit": 60, "period": 60 } },
+    { "name": "MCP_RATE_LIMIT_GLOBAL", "namespace_id": "4102", "simple": { "limit": 1200, "period": 60 } }
+  ],
   "observability": {
     "enabled": true,
     "head_sampling_rate": 0.2
   }
-  // No bindings, no KV, no D1, no Durable Objects: the server is fully stateless.
+  // No storage bindings (no KV, D1 or Durable Objects): the server is fully stateless.
   // Deploy with `npm run deploy` (needs a Cloudflare API token) or connect the
   // repository to Cloudflare Workers Builds for automatic deploys from `main`.
 }

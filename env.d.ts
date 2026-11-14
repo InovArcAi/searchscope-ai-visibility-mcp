@@ -1,4 +1,4 @@
-// The Worker has no bindings. `cloudflare:test` types reference `Cloudflare.Env`,
+// The Worker has no storage bindings. `cloudflare:test` types reference `Cloudflare.Env`,
 // which `wrangler types` would normally generate; declare it empty here instead.
 declare namespace Cloudflare {
   interface Env {}
