@@ -106,7 +106,7 @@ const AU_ADDRESS_RE = /\b\d{1,5}[A-Za-z]?(?:\/\d{1,5})?\s+[A-Z][A-Za-z'-]+(?:\s[
 const PHONE_RE = /(?:\+?61|0)\s?(?:\(0\)\s?)?[2-9](?:[\s-]?\d){8}\b|\b(?:1300|1800|13)(?:[\s-]?\d){6,8}\b|\+\d{1,3}(?:[\s-]?\(?\d\)?){8,14}\b/g;
 const EMAIL_RE = /\b[a-z0-9._%+-]+@[a-z0-9.-]+\.[a-z]{2,}\b/gi;
 const ABN_RE = /\b(ABN|ACN)\s*:?\s*(\d{2}\s?\d{3}\s?\d{3}\s?\d{3}|\d{3}\s?\d{3}\s?\d{3})\b/g;
-const LEGAL_SUFFIX_RE = /\b([A-Z][A-Za-z0-9&'.-]*(?:\s+[A-Z][A-Za-z0-9&'.-]*){0,5})\s+(Pty\.?\s+Ltd\.?|Pty\s+Limited|Ltd\.?|Limited|LLC|Inc\.?|Incorporated|GmbH|LLP|PLC|Corp\.?|Co\.?)\b/g;
+const LEGAL_SUFFIX_RE = /\b([A-Z][A-Za-z0-9&'.-]{0,40}(?:\s+[A-Z][A-Za-z0-9&'.-]{0,40}){0,5})\s+(Pty\.?\s+Ltd\.?|Pty\s+Limited|Ltd\.?|Limited|LLC|Inc\.?|Incorporated|GmbH|LLP|PLC|Corp\.?|Co\.?)\b/g;
 const CREDENTIAL_RE = /\b(licen[cs]ed|licen[cs]e (?:no|number)|accredited|accreditation|certified|certification|registered (?:builder|plumber|electrician|agent|migration agent|tax agent|nurse|psychologist|architect|practitioner|provider|nDIS provider)|member of|members? of the|award[- ]winning|awarded|winner of|finalist|years?['’]? (?:of )?experience|since (?:19|20)\d{2}|established (?:in )?(?:19|20)\d{2}|founded (?:in )?(?:19|20)\d{2}|qualified|fellow of|ISO ?\d{4,5}|Google (?:Partner|Premier Partner)|Meta Business Partner|Master (?:Builder|Plumber|Electrician)|bachelor of|master of|phd|\bMBA\b|\bCPA\b|\bCA\b\s*\(|chartered|AHPRA|NDIS|HIA|MBA member|RACGP|\bAPRA\b)\b/gi;
 const THIRD_PARTY_RE = /\b(as seen (?:in|on)|featured (?:in|on|by)|as featured|recommended by|trusted by|partnered with|in partnership with|Google reviews?|Google rating|rated \d(?:\.\d)?(?:\/5| stars?| out of 5)|\d(?:\.\d)? ?stars? (?:on|from|across)|Trustpilot|ProductReview|Yelp|Word of Mouth|hipages|Oneflare|Clutch|Facebook reviews?|\d{2,5}\+? (?:five|5)[- ]star reviews?|\d{2,5}\+? reviews)\b/gi;
 export const EVIDENCE_RE = /\b(case stud(?:y|ies)|our (?:own )?(?:data|research|study|survey|analysis|experiment|test(?:ing)?|benchmark)|we (?:analy[sz]ed|surveyed|tested|measured|tracked|studied|reviewed|audited|compared|collected|found that|observed)|according to our|original research|proprietary (?:data|research|method|framework)|first[- ]hand|in our experience|(?:n|sample size)\s?=\s?\d+|\d[\d,]* (?:respondents|participants|clients|customers|projects|sites|websites|businesses|patients|homes|jobs|installations|audits|campaigns)|benchmark(?:s|ing)?|results? (?:we|from|of our)|before and after|increase[ds]? (?:by|of) \d|decrease[ds]? (?:by|of) \d|\d+(?:\.\d+)?% (?:increase|decrease|lift|growth|improvement|reduction|more|fewer|of))\b/gi;
@@ -373,6 +373,9 @@ export function buildSiteModel(crawl: CrawlResult): SiteModel {
   const offerings: Detected[] = [];
   const locationNames = [...locations.map((l) => l.value), ...KNOWN_PLACES, ...AU_STATES].map((x) => x.toLowerCase());
   const stripLocationSuffix = (v: string): string => {
+    // Offerings are short labels. The lazy patterns below are quadratic on long
+    // strings, and this text comes from the audited site, so skip anything long.
+    if (v.length > 160) return v;
     const m = /^(.*?)(?:\s+(?:in|near|across|throughout|for|around)\s+([A-Z][\w'’-]+(?:\s[A-Z][\w'’-]+){0,2}))$/.exec(v);
     if (m?.[1] && m[2] && locationNames.includes(m[2].toLowerCase())) return m[1];
     const tail = /^(.*?)\s+([A-Z][\w'’-]+(?:\s[A-Z][\w'’-]+)?)$/.exec(v);

@@ -55,7 +55,7 @@ export interface PageRetrievability {
 const QUESTION_START = /^(what|how|why|when|where|which|who|can|could|do|does|did|is|are|should|will|would|has|have)\b/i;
 const HEDGE_RE = /\b(it depends|depends on|varies|many factors|a range of|contact us (?:to|for)|get in touch|reach out|every (?:business|situation|case) is different|case[- ]by[- ]case|we can help|talk to us|book a (?:call|consult)|find out more)\b/i;
 const GENERIC_HEADING_RE = /^(overview|introduction|about|about us|services|our services|why us|why choose us|what we do|how it works|get started|contact|contact us|faq|faqs|testimonials|reviews|our process|our approach|benefits|features|pricing|learn more|more info|resources|blog|latest news|news|gallery|our team|team|welcome|home)$/i;
-const SPECIFIC_RE = /(\$\s?\d[\d,]*(?:\.\d+)?|\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d+(?:,\d{3})+\b|\b\d+(?:\.\d+)?\s?(?:km|kg|mm|cm|m|hours?|hrs|days?|weeks?|months?|years?|minutes?|mins?|litres?|kW|kWh|sqm|m2)\b|\b\d+\+?\s?(?:clients|customers|projects|reviews|locations|staff|employees|years|installs?|jobs)\b)/g;
+const SPECIFIC_RE = /(\$\s?\d[\d,]*(?:\.\d+)?|\b\d+(?:\.\d+)?\s?%|\b(?:19|20)\d{2}\b|\b\d+(?:,\d{3})+\b|\b\d+(?:\.\d+)?\s?(?:km|kg|mm|cm|m|hours?|hrs|days?|weeks?|months?|years?|minutes?|mins?|litres?|kW|kWh|sqm|m2)\b|\b\d+\+?\s?(?:clients|customers|projects|reviews|locations|staff|employees|years|installs?|jobs)\b)/g;
 
 function countSpecifics(text: string): number {
   let n = 0;
