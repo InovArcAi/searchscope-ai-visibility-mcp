@@ -99,7 +99,7 @@ curl -X POST https://mcp.searchscope.com.au/api/v1/audit \
 
 **RapidAPI.** RapidAPI forwards every request from its own servers, so all its users would share one IP budget. When the `RAPIDAPI_PROXY_SECRET` Worker secret is set and a request carries a matching `X-RapidAPI-Proxy-Secret` header (compared in constant time), the client budget is keyed on `X-RapidAPI-User` instead. Without the secret, or with a wrong one, those headers are ignored and the request is limited per IP like any other, so the username header cannot be forged to dodge the limit.
 
-**Platform notes.** An audit usually takes 5 to 25 seconds. Zapier stops an action after 30 seconds, so integrations there should send a smaller `maxPages`. Make, Zapier, Pabbly and Albato call from shared servers, so at busy times their users share one client budget; per-key budgets with stored keys would be the next step if that becomes a real constraint.
+**Platform notes.** How long an audit takes depends on the site and on `maxPages`; the crawl stops after 25 seconds at most (`crawlBudgetMs`). Zapier stops an action after 30 seconds, so integrations there should send a smaller `maxPages`. Make, Zapier, Pabbly and Albato call from shared servers, so at busy times their users share one client budget; per-key budgets with stored keys would be the next step if that becomes a real constraint.
 
 ## 3. Local development
 
