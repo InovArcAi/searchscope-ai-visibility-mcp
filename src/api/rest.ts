@@ -12,7 +12,7 @@ import type { z } from "zod";
 import { LIMITS, SERVICE_HOSTNAMES, SERVICE_NAME, SERVICE_VERSION } from "../config";
 import type { Env } from "../env";
 import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger, type LimitVerdict } from "../security/limits";
-import { isAcceptableOrigin, readBodyCapped, targetKey } from "../security/request";
+import { isAcceptableApiOrigin, readBodyCapped, targetKey } from "../security/request";
 import { runAudit, runEntities, runQueries, type ToolDeps, type ToolOutcome } from "../tools/run";
 import { apiKeyHtml } from "./docs";
 import { checkApiKey, issueApiKey, keysEnabled, verifiedRapidApiUser } from "./keys";
@@ -138,9 +138,10 @@ export async function handleApi(request: Request, env: Env, url: URL): Promise<R
   const prepare = TOOL_ROUTES[path];
   if (!prepare && path !== STATUS_PATH && path !== KEYS_PATH) return apiError(404, "not_found", `No such endpoint. See ${API_DOCS_URL}.`);
 
-  // Same Host and Origin rules as /mcp: only our own hostnames serve the API.
+  // Same Host rule as /mcp: only our own hostnames serve the API. Same Origin
+  // rule too, plus Search Scope's own browser add-on (ALLOWED_EXTENSION_ORIGINS).
   if (!isLoopbackHost(url.hostname) && !SERVICE_HOSTNAMES.includes(url.hostname)) return apiError(403, "host_not_allowed", "Host not allowed.");
-  if (!isAcceptableOrigin(request.headers.get("origin"))) return apiError(403, "origin_not_allowed", "Origin not allowed.");
+  if (!isAcceptableApiOrigin(request.headers.get("origin"))) return apiError(403, "origin_not_allowed", "Origin not allowed.");
   if (request.method === "OPTIONS") return preflight();
   const method = path === STATUS_PATH ? "GET" : "POST";
   if (request.method !== method) return methodNotAllowed(method);

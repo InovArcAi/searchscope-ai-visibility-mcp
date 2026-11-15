@@ -336,6 +336,40 @@ describe("REST API: request guards", () => {
     }
   });
 
+  it("accepts Search Scope's own browser add-on on the API, and no other extension", async () => {
+    const EXT = "chrome-extension://kjdngodjcfbjnkclnkcchhebjnfncchl";
+    const env = bindings();
+    const pre = await call(env, `${API}/audit`, { method: "OPTIONS", headers: { origin: EXT, "access-control-request-method": "POST", "access-control-request-headers": "content-type" } });
+    expect(pre.status).toBe(204);
+    const res = await call(env, `${API}/audit`, { body: { url: SITE }, headers: { origin: EXT } });
+    expect(res.status).toBe(200);
+    expect(res.headers.get("access-control-allow-origin")).toBe("*");
+    // The add-on pays the same budget as any other client.
+    expect(perIp(env).deltas.reduce((a, b) => a + b, 0)).toBe(3);
+    for (const origin of [
+      "chrome-extension://abcdefghijklmnopabcdefghijklmnop",
+      `${EXT}/`,
+      "chrome-extension://KJDNGODJCFBJNKCLNKCCHHEBJNFNCCHL",
+      "moz-extension://kjdngodjcfbjnkclnkcchhebjnfncchl",
+    ]) {
+      const bad = await call(bindings(), `${API}/status`, { headers: { origin } });
+      expect(bad.status, origin).toBe(403);
+      expect(await errorCode(bad)).toBe("origin_not_allowed");
+    }
+  });
+
+  it("serves the browser extension's privacy page", async () => {
+    const res = await call(bindings(), `${PROD}/extension/privacy`);
+    expect(res.status).toBe(200);
+    expect(res.headers.get("content-type")).toContain("text/html");
+    const html = await res.text();
+    expect(html).toContain("Privacy: AI Visibility Audit browser extension");
+    expect(html).toContain("activeTab");
+    expect(html).toContain("https://searchscope.com.au/privacy-policy/");
+    expect(html).not.toContain("\u2014");
+    expect((await call(bindings(), `${PROD}/extension/privacy`, { method: "POST", rawBody: "x" })).status).toBe(405);
+  });
+
   it("answers a CORS preflight without spending any budget", async () => {
     const env = bindings();
     const res = await call(env, `${API}/audit`, { method: "OPTIONS", headers: { origin: "https://app.example.com", "access-control-request-method": "POST", "access-control-request-headers": "authorization, content-type" } });
