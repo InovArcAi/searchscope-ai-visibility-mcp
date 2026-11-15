@@ -38,7 +38,7 @@ const toolErrors = {
   "503": response("Unavailable"),
 };
 
-const toolNote = `Crawls up to ${LIMITS.hardMaxPages} pages of the site and usually answers in 5 to 25 seconds. Costs ${LIMITS.toolCallWeight} units of the per-client budget (60 a minute, shared with the MCP endpoint) and 1 of the audited site's budget (10 a minute).`;
+const toolNote = `Crawls up to ${LIMITS.hardMaxPages} pages of the site; how long it takes depends on the site, and the crawl stops after ${LIMITS.crawlBudgetMs / 1000} seconds at most. Costs ${LIMITS.toolCallWeight} units of the per-client budget (60 a minute, shared with the MCP endpoint) and 1 of the audited site's budget (10 a minute).`;
 
 function toolOperation(operationId: string, summary: string, description: string, requestName: string, responseName: string, example: Record<string, unknown>) {
   return {

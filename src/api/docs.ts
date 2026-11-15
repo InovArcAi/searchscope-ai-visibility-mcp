@@ -92,7 +92,7 @@ export function apiDocsHtml(origin: string): string {
 <li>A key has its own budget of the same size, so a key shared publicly cannot be used beyond one client's worth.</li>
 <li>Each audited website can be audited 10 times a minute in total, by everyone together.</li>
 <li>Over a limit you get HTTP 429 with <code>retry-after: 60</code>. The limits are approximate and counted per Cloudflare location.</li>
-<li>An audit usually takes 5 to 25 seconds. Zapier stops an action after 30 seconds, so use a smaller <code>maxPages</code> there, such as 5.</li>
+<li>How long an audit takes depends on the site and on <code>maxPages</code>; the crawl stops after ${LIMITS.crawlBudgetMs / 1000} seconds at most. Zapier stops an action after 30 seconds, so use a smaller <code>maxPages</code> there, such as 5.</li>
 <li>Automation platforms (Make, Zapier and others) send requests from shared servers, so their users can share one client budget at busy times.</li>
 </ul>
 
