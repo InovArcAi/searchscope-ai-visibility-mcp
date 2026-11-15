@@ -406,6 +406,26 @@ describe("REST API: request guards", () => {
     expect((await call(bindings(), `${PROD}/extension/privacy`, { method: "POST", rawBody: "x" })).status).toBe(405);
   });
 
+  it("serves the service privacy policy and terms of use", async () => {
+    const privacy = await call(bindings(), `${PROD}/privacy`);
+    expect(privacy.status).toBe(200);
+    expect(privacy.headers.get("content-type")).toContain("text/html");
+    const p = await privacy.text();
+    expect(p).toContain("Privacy: Search Scope AI Visibility Auditor");
+    expect(p).toContain("does not receive your conversation");
+    expect(p).not.toContain("\u2014");
+    const terms = await call(bindings(), `${PROD}/terms`);
+    expect(terms.status).toBe(200);
+    const t = await terms.text();
+    expect(t).toContain("Terms of use: Search Scope AI Visibility Auditor");
+    expect(t).toContain("Australian Consumer Law");
+    expect(t).not.toContain("\u2014");
+    expect((await call(bindings(), `${PROD}/terms`, { method: "POST", rawBody: "x" })).status).toBe(405);
+    const sitemap = await (await call(bindings(), `${PROD}/sitemap.xml`)).text();
+    expect(sitemap).toContain("<loc>https://mcp.searchscope.com.au/privacy</loc>");
+    expect(sitemap).toContain("<loc>https://mcp.searchscope.com.au/terms</loc>");
+  });
+
   it("answers a CORS preflight without spending any budget", async () => {
     const env = bindings();
     const res = await call(env, `${API}/audit`, { method: "OPTIONS", headers: { origin: "https://app.example.com", "access-control-request-method": "POST", "access-control-request-headers": "authorization, content-type" } });

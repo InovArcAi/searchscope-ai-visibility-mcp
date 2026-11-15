@@ -10,6 +10,7 @@ import { createServer } from "./mcp/server";
 import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./security/limits";
 import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 import { EXTENSION_PRIVACY_PATH, extensionPrivacyHtml } from "./extension/privacy";
+import { PRIVACY_PATH, TERMS_PATH, privacyHtml, termsHtml } from "./legal/pages";
 import { DOCS_MARKDOWN_PATH, LLMS_TXT_PATH, SITEMAP_PATH, apiDocsMarkdown, llmsTxt, sitemapXml } from "./api/docs-markdown";
 
 function rateLimited(): Response {
@@ -277,6 +278,12 @@ export default {
     if (url.pathname === EXTENSION_PRIVACY_PATH) {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
       return new Response(request.method === "HEAD" ? null : extensionPrivacyHtml(), { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" } });
+    }
+
+    if (url.pathname === PRIVACY_PATH || url.pathname === TERMS_PATH) {
+      if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
+      const html = url.pathname === PRIVACY_PATH ? privacyHtml() : termsHtml();
+      return new Response(request.method === "HEAD" ? null : html, { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" } });
     }
 
     if (url.pathname === "/health") {
