@@ -25,7 +25,8 @@ form.key button{font:inherit;cursor:pointer;border:0}
 @media (prefers-color-scheme:dark){th{color:#fff}}
 `;
 
-function page(opts: { title: string; description: string; robots: string; body: string }): string {
+/** The shared page shell for the Worker's static HTML pages (API docs, key page, extension privacy). */
+export function page(opts: { title: string; description: string; robots: string; body: string; badge?: string }): string {
   return `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${opts.title}</title>
 <meta name="description" content="${opts.description}">
@@ -38,7 +39,7 @@ ${PAGE_CSS}${DOCS_CSS}</style></head>
 <body>
 <header><div class="wrap">
 <a href="${PUBLISHER_URL}"><img src="/logo.png" alt="${PUBLISHER}" width="330" height="51"></a>
-<span class="badge">REST API</span>
+<span class="badge">${opts.badge ?? "REST API"}</span>
 </div></header>
 <main class="wrap">
 ${opts.body}

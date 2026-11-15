@@ -58,6 +58,16 @@ export const SERVICE_ORIGIN = "https://mcp.searchscope.com.au";
  * A new custom domain must be added here or its `/mcp` requests get a 403.
  */
 export const SERVICE_HOSTNAMES: readonly string[] = ["mcp.searchscope.com.au", "searchscope-ai-visibility-mcp.searchscope.workers.dev"];
+/**
+ * Browser-extension origins the REST API (`/api/v1` only, never `/mcp`) also
+ * accepts, on top of the web origins isAcceptableOrigin allows. Chromium sends
+ * `Origin: chrome-extension://<id>` on an extension's fetch, which the general
+ * policy refuses. The one entry is Search Scope's own Microsoft Edge add-on
+ * (Partner Center CRX ID). This is an allow-list, not authentication: anyone
+ * can load unpacked code under the same ID by copying its public key, and gets
+ * nothing a plain HTTP client could not already do, under the same rate limits.
+ */
+export const ALLOWED_EXTENSION_ORIGINS: readonly string[] = ["chrome-extension://kjdngodjcfbjnkclnkcchhebjnfncchl"];
 export const SERVICE_DESCRIPTION =
   "Audits any public website for AI search visibility: entity clarity, AI retrievability, trust signals, internal linking and structured data, with ranked fixes and AI search prompts to monitor. Free and read-only, from Search Scope, an SEO consultancy in Perth, Western Australia.";
 /** Sent to clients as the server's instructions during initialisation. */

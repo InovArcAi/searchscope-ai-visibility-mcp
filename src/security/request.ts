@@ -3,6 +3,7 @@
  * handler sees anything. (Outbound target checks live in ./url.ts.)
  */
 
+import { ALLOWED_EXTENSION_ORIGINS } from "../config";
 import { normaliseTargetUrl } from "./url";
 
 export interface ToolCall {
@@ -65,6 +66,15 @@ export function isAcceptableOrigin(origin: string | null): boolean {
   // query or fragment. Comparing against the parser's own serialisation
   // rejects all of those in one step (a lone trailing slash is tolerated).
   return u.hostname !== "" && origin.replace(/\/$/, "").toLowerCase() === u.origin;
+}
+
+/**
+ * Origin policy for the REST API: the /mcp policy, plus the exact extension
+ * origins in ALLOWED_EXTENSION_ORIGINS (Search Scope's own browser add-on).
+ * Any other extension origin is still refused.
+ */
+export function isAcceptableApiOrigin(origin: string | null): boolean {
+  return isAcceptableOrigin(origin) || (origin !== null && ALLOWED_EXTENSION_ORIGINS.includes(origin));
 }
 
 /**

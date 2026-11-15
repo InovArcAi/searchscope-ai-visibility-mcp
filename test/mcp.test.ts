@@ -130,7 +130,7 @@ describe("request guards on /mcp", () => {
     for (const origin of ["https://claude.ai", "http://localhost:6274", "https://inspector.example.com:8443", "https://claude.ai/"]) {
       expect((await post(`${BASE}/mcp`, INITIALIZE, { origin })).status, origin).toBe(200);
     }
-    for (const origin of ["null", "not a url", "chrome-extension://abcdefghijklmnop", "file://", "https://claude.ai/some/path", "https://user@claude.ai", "https://claude.ai?x=1", "ftp://example.com"]) {
+    for (const origin of ["null", "not a url", "chrome-extension://abcdefghijklmnop", "chrome-extension://kjdngodjcfbjnkclnkcchhebjnfncchl", "file://", "https://claude.ai/some/path", "https://user@claude.ai", "https://claude.ai?x=1", "ftp://example.com"]) {
       const res = await post(`${BASE}/mcp`, INITIALIZE, { origin });
       expect(res.status, origin).toBe(403);
       expect(await res.text()).toContain("Origin not allowed");

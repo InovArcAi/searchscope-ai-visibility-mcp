@@ -9,6 +9,7 @@ import type { Env } from "./env";
 import { createServer } from "./mcp/server";
 import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./security/limits";
 import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
+import { EXTENSION_PRIVACY_PATH, extensionPrivacyHtml } from "./extension/privacy";
 
 function rateLimited(): Response {
   return Response.json(
@@ -254,6 +255,11 @@ export default {
       // `Origin: null` with the page's "Get a free API key" form post, which
       // the API's Origin policy refuses. Other sites still get no referrer.
       return new Response(request.method === "HEAD" ? null : apiDocsHtml(url.origin), { headers: { ...SECURITY_HEADERS, "referrer-policy": "same-origin", "content-type": "text/html; charset=utf-8" } });
+    }
+
+    if (url.pathname === EXTENSION_PRIVACY_PATH) {
+      if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
+      return new Response(request.method === "HEAD" ? null : extensionPrivacyHtml(), { headers: { ...SECURITY_HEADERS, "content-type": "text/html; charset=utf-8" } });
     }
 
     if (url.pathname === "/health") {
