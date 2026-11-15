@@ -180,6 +180,36 @@ describe("REST API: OpenAPI spec and docs", () => {
     expect(robots).not.toContain("/docs");
   });
 
+  it("serves llms.txt and a Markdown version of the docs for AI agents", async () => {
+    const llms = await call(bindings(), `${PROD}/llms.txt`);
+    expect(llms.status).toBe(200);
+    expect(llms.headers.get("content-type")).toContain("text/plain");
+    const index = await llms.text();
+    expect(index.startsWith("# ")).toBe(true);
+    expect(index).toContain(`${PROD}/docs/api.md`);
+    expect(index).toContain(`${API}/openapi.json`);
+
+    const md = await call(bindings(), `${PROD}/docs/api.md`);
+    expect(md.status).toBe(200);
+    expect(md.headers.get("content-type")).toContain("text/markdown");
+    const text = await md.text();
+    expect(text).toContain("## Endpoints");
+    expect(text).toContain("POST /audit");
+    expect(text).not.toContain("<");
+    expect(text).not.toContain("\u2014");
+
+    const negotiated = await call(bindings(), `${PROD}/docs/api`, { headers: { accept: "text/markdown" } });
+    expect(negotiated.headers.get("content-type")).toContain("text/markdown");
+    expect(await negotiated.text()).toBe(text);
+
+    const html = await (await call(bindings(), `${PROD}/docs/api`)).text();
+    expect(html).toContain('<link rel="alternate" type="text/markdown" href="/docs/api.md">');
+    const landing = await (await call(bindings(), `${PROD}/`)).text();
+    expect(landing).toContain('href="/llms.txt"');
+    const robots = await (await call(bindings(), `${PROD}/robots.txt`)).text();
+    expect(robots).not.toContain("Disallow: /llms");
+  });
+
   it("links the API from the landing page and its JSON form", async () => {
     const html = await (await call(bindings(), `${PROD}/`)).text();
     expect(html).toContain('href="https://mcp.searchscope.com.au/docs/api"');

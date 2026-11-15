@@ -26,13 +26,13 @@ form.key button{font:inherit;cursor:pointer;border:0}
 `;
 
 /** The shared page shell for the Worker's static HTML pages (API docs, key page, extension privacy). */
-export function page(opts: { title: string; description: string; robots: string; body: string; badge?: string }): string {
+export function page(opts: { title: string; description: string; robots: string; body: string; badge?: string; head?: string }): string {
   return `<!doctype html><html lang="en-AU"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
 <title>${opts.title}</title>
 <meta name="description" content="${opts.description}">
 <meta name="robots" content="${opts.robots}">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
-<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+${opts.head ?? ""}<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
 <style>
 ${PAGE_CSS}${DOCS_CSS}</style></head>
@@ -56,11 +56,12 @@ export function apiDocsHtml(origin: string): string {
     title: `${SERVICE_NAME} REST API by ${PUBLISHER}`,
     description: `Free REST API from ${PUBLISHER}. Audit any public website for AI search visibility, entity clarity and GEO opportunities with one JSON request. No sign-up, optional free API key, OpenAPI 3.1 spec.`,
     robots: "index, follow",
+    head: `<link rel="alternate" type="text/markdown" href="/docs/api.md">\n<link rel="help" type="text/plain" href="/llms.txt">\n`,
     body: `<h1>${SERVICE_NAME} REST API</h1>
 <p class="lede">Audit any public website for AI search visibility with one JSON request. Same engine as the <a href="/mcp">MCP server</a>: it reads a small sample of the site and returns structured findings plus a readable report. Free, read-only, no sign-up.</p>
 
 <div class="endpoint"><span>Base URL</span><code>${base}</code></div>
-<p class="note">JSON in, JSON out. OpenAPI 3.1 spec at <a href="${API_BASE_PATH}/openapi.json">${API_BASE_PATH}/openapi.json</a>: import it into Postman, RapidAPI, Make or any OpenAPI tool.</p>
+<p class="note">JSON in, JSON out. OpenAPI 3.1 spec at <a href="${API_BASE_PATH}/openapi.json">${API_BASE_PATH}/openapi.json</a>: import it into Postman, RapidAPI, Make or any OpenAPI tool. For AI agents: <a href="/llms.txt">llms.txt</a> and a <a href="/docs/api.md">Markdown version of this page</a>.</p>
 
 <h2>Quick start</h2>
 <pre>curl -X POST ${base}/audit \\
