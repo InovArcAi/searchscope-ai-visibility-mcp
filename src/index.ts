@@ -10,7 +10,7 @@ import { createServer } from "./mcp/server";
 import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./security/limits";
 import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 import { EXTENSION_PRIVACY_PATH, extensionPrivacyHtml } from "./extension/privacy";
-import { DOCS_MARKDOWN_PATH, LLMS_TXT_PATH, apiDocsMarkdown, llmsTxt } from "./api/docs-markdown";
+import { DOCS_MARKDOWN_PATH, LLMS_TXT_PATH, SITEMAP_PATH, apiDocsMarkdown, llmsTxt, sitemapXml } from "./api/docs-markdown";
 
 function rateLimited(): Response {
   return Response.json(
@@ -330,8 +330,12 @@ export default {
       });
     }
 
+    if (url.pathname === SITEMAP_PATH) {
+      return new Response(request.method === "HEAD" ? null : sitemapXml(SERVICE_ORIGIN), { headers: { ...SECURITY_HEADERS, "content-type": "application/xml; charset=utf-8", "cache-control": "public, max-age=3600" } });
+    }
+
     if (url.pathname === "/robots.txt") {
-      return new Response("User-agent: *\nDisallow: /mcp\nDisallow: /api/\n", { headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" } });
+      return new Response(`User-agent: *\nDisallow: /mcp\nDisallow: /api/\n\nSitemap: ${SERVICE_ORIGIN}${SITEMAP_PATH}\n`, { headers: { ...SECURITY_HEADERS, "content-type": "text/plain; charset=utf-8" } });
     }
 
     return new Response("Not Found", { status: 404, headers: SECURITY_HEADERS });

@@ -5,11 +5,22 @@
  * and the same LIMITS as the HTML page in ./docs.ts: change both together.
  */
 
-import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_NAME } from "../config";
+import { LIMITS, PUBLISHER, PUBLISHER_CONTACT_URL, PUBLISHER_LOCATION, PUBLISHER_URL, SERVICE_NAME, SERVICE_VERSION } from "../config";
 import { API_BASE_PATH } from "./openapi";
 
 export const DOCS_MARKDOWN_PATH = "/docs/api.md";
 export const LLMS_TXT_PATH = "/llms.txt";
+export const SITEMAP_PATH = "/sitemap.xml";
+
+/** The public, indexable pages. /llms.txt lists the same documentation pages. */
+export function sitemapXml(origin: string): string {
+  const urls = ["/", "/docs/api", DOCS_MARKDOWN_PATH, "/extension/privacy"];
+  return `<?xml version="1.0" encoding="UTF-8"?>
+<urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
+${urls.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join("\n")}
+</urlset>
+`;
+}
 
 export function llmsTxt(origin: string): string {
   return `# ${SERVICE_NAME}
@@ -39,11 +50,13 @@ export function apiDocsMarkdown(origin: string): string {
   const base = `${origin}${API_BASE_PATH}`;
   return `# ${SERVICE_NAME} REST API
 
+> For the complete documentation index, see [llms.txt](${origin}${LLMS_TXT_PATH}).
+
 Audit any public website for AI search visibility with one JSON request. Same engine as the [MCP server](${origin}/mcp): it reads a small sample of the site and returns structured findings plus a readable report. Free, read-only, no sign-up. Published by [${PUBLISHER}](${PUBLISHER_URL}), ${PUBLISHER_LOCATION}.
 
-- Base URL: \`${base}\`
-- OpenAPI 3.1 spec: [${base}/openapi.json](${base}/openapi.json). Import it into Postman, RapidAPI, Make or any OpenAPI tool.
-- JSON in, JSON out.
+Base URL: \`${base}\`
+
+JSON in, JSON out. OpenAPI 3.1 spec at [${API_BASE_PATH}/openapi.json](${base}/openapi.json): import it into Postman, RapidAPI, Make or any OpenAPI tool. For AI agents: [llms.txt](${origin}${LLMS_TXT_PATH}) and a [Markdown version of this page](${origin}${DOCS_MARKDOWN_PATH}).
 
 ## Quick start
 
@@ -76,7 +89,9 @@ curl -X POST ${base}/entities \\
   -d '{"url":"https://example.com.au"}'
 \`\`\`
 
-Send the key only in the \`Authorization\` header, never in a URL. A wrong key gets a 401; leave the header out to call without one.
+Send the key only in the \`Authorization\` header, never in a URL. A wrong key gets a 401; leave the header out to call without one. Lost it? Get another.
+
+Get a free API key: \`POST ${base}/keys\`, or the button on the [HTML docs page](${origin}/docs/api).
 
 ## Limits
 
@@ -84,7 +99,7 @@ Send the key only in the \`Authorization\` header, never in a URL. A wrong key g
 - A key has its own budget of the same size, so a key shared publicly cannot be used beyond one client's worth.
 - Each audited website can be audited 10 times a minute in total, by everyone together.
 - Over a limit you get HTTP 429 with \`retry-after: 60\`. The limits are approximate and counted per Cloudflare location.
-- The crawl stops after ${LIMITS.crawlBudgetMs / 1000} seconds at most. Zapier stops an action after 30 seconds, so use a smaller \`maxPages\` there, such as 5.
+- How long an audit takes depends on the site and on \`maxPages\`; the crawl stops after ${LIMITS.crawlBudgetMs / 1000} seconds at most. Zapier stops an action after 30 seconds, so use a smaller \`maxPages\` there, such as 5.
 - Automation platforms (Make, Zapier and others) send requests from shared servers, so their users can share one client budget at busy times.
 
 ## Errors
@@ -107,10 +122,14 @@ It reads the site itself and reports what is there. It does not measure real cit
 
 ## Privacy
 
-Public website content is fetched and analysed in memory for the length of one request, then discarded. Nothing is stored: no accounts, no database, no cookies, no tracking. API keys are signed, not saved. The crawler identifies itself as \`SearchScopeAIVisibilityAuditor\`, reads at most ${LIMITS.hardMaxPages} pages per request, never submits forms, never runs scripts and refuses private, internal or loopback addresses.
+Public website content is fetched and analysed in memory for the length of one request, then discarded. Nothing is stored: no accounts, no database, no cookies, no tracking. API keys are signed, not saved, so ${PUBLISHER} holds no list of keys or of who asked for them. The crawler identifies itself as \`SearchScopeAIVisibilityAuditor\`, reads at most ${LIMITS.hardMaxPages} pages per request, never submits forms, never runs scripts and refuses private, internal or loopback addresses.
 
-## Contact
+## Get the fixes done
 
-The audit tells you what to change. ${PUBLISHER} changes it: [get in touch](${PUBLISHER_CONTACT_URL}).
+**The audit tells you what to change. ${PUBLISHER} changes it.** We are an SEO consultancy in ${PUBLISHER_LOCATION} working on AI search visibility, Google Business Profile reinstatement and technical SEO. If you want these fixes implemented, or ongoing tracking of whether AI assistants actually cite your business, talk to us.
+
+[Get in touch](${PUBLISHER_CONTACT_URL}) · [See what we do](${PUBLISHER_URL})
+
+Published by [${PUBLISHER}](${PUBLISHER_URL}), ${PUBLISHER_LOCATION}. Version ${SERVICE_VERSION}. MCP server at [/mcp](${origin}/mcp). Status at [/health](${origin}/health).
 `;
 }

@@ -208,6 +208,12 @@ describe("REST API: OpenAPI spec and docs", () => {
     expect(landing).toContain('href="/llms.txt"');
     const robots = await (await call(bindings(), `${PROD}/robots.txt`)).text();
     expect(robots).not.toContain("Disallow: /llms");
+    expect(robots).toContain("Sitemap: https://mcp.searchscope.com.au/sitemap.xml");
+    expect(text).toContain("[llms.txt](https://mcp.searchscope.com.au/llms.txt)");
+    expect(text).toContain("Lost it? Get another.");
+    const sitemap = await call(bindings(), `${PROD}/sitemap.xml`);
+    expect(sitemap.status).toBe(200);
+    expect(await sitemap.text()).toContain("<loc>https://mcp.searchscope.com.au/docs/api</loc>");
   });
 
   it("links the API from the landing page and its JSON form", async () => {
