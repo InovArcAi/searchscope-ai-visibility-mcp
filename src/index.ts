@@ -10,6 +10,7 @@ import { createServer } from "./mcp/server";
 import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./security/limits";
 import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 import { EXTENSION_PRIVACY_PATH, extensionPrivacyHtml } from "./extension/privacy";
+import { DOCS_MARKDOWN_PATH, LLMS_TXT_PATH, apiDocsMarkdown, llmsTxt } from "./api/docs-markdown";
 
 function rateLimited(): Response {
   return Response.json(
@@ -130,6 +131,7 @@ function landingHtml(origin: string): string {
 <meta name="description" content="Free MCP server from ${PUBLISHER}. Audit any public website for AI search visibility, entity clarity, retrieval readiness, information gain and GEO opportunities from inside Claude or any MCP client.">
 <meta name="robots" content="index, follow">
 <link rel="icon" href="/favicon.svg" type="image/svg+xml">
+<link rel="help" type="text/plain" href="/llms.txt">
 <link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;600;700&display=swap">
 <style>
@@ -249,8 +251,23 @@ export default {
       return handleApi(request, env, url);
     }
 
+    if (url.pathname === LLMS_TXT_PATH || url.pathname === DOCS_MARKDOWN_PATH) {
+      if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
+      const isIndex = url.pathname === LLMS_TXT_PATH;
+      const text = isIndex ? llmsTxt(url.origin) : apiDocsMarkdown(url.origin);
+      return new Response(request.method === "HEAD" ? null : text, {
+        headers: { ...SECURITY_HEADERS, "content-type": `${isIndex ? "text/plain" : "text/markdown"}; charset=utf-8`, "cache-control": "public, max-age=3600" },
+      });
+    }
+
     if (url.pathname === "/docs/api" || url.pathname === "/docs/api/") {
       if (request.method !== "GET" && request.method !== "HEAD") return new Response("Method Not Allowed", { status: 405, headers: SECURITY_HEADERS });
+      // Agents that ask for Markdown get the Markdown version of the same page.
+      if ((request.headers.get("accept") ?? "").includes("text/markdown")) {
+        return new Response(request.method === "HEAD" ? null : apiDocsMarkdown(url.origin), {
+          headers: { ...SECURITY_HEADERS, "content-type": "text/markdown; charset=utf-8", vary: "accept" },
+        });
+      }
       // same-origin, not no-referrer: under no-referrer a browser sends
       // `Origin: null` with the page's "Get a free API key" form post, which
       // the API's Origin policy refuses. Other sites still get no referrer.
