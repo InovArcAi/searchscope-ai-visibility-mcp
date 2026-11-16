@@ -72,6 +72,8 @@ function fakeNotion(calls: NotionCall[], opts: FakeNotionOptions = {}): typeof f
   return (async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
     if (url.hostname !== "api.notion.com") return site(input, init);
+    // Validate the options the way the Workers runtime does (it rejects redirect: "error", for one).
+    new Request(url, init);
     const body = init?.body ? JSON.parse(String(init.body)) : undefined;
     calls.push({ path: url.pathname, headers: new Headers(init?.headers), body });
     if (url.pathname === "/v1/oauth/token") {
@@ -255,6 +257,22 @@ describe("Save to Notion: callback", () => {
     const res = await call(env, `${PROD}/notion/callback?code=code-1234abcd&state=${encodeURIComponent(state)}`, { headers: { cookie } });
     expect(res.status).toBe(200);
     expect(calls[0]!.headers.get("authorization")).toBe(`Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`);
+  });
+
+  it("refuses a redirect from Notion instead of following it with the token", async () => {
+    const calls2: NotionCall[] = [];
+    const base = fakeNotion(calls2);
+    const fetchImpl = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      const u = new URL(typeof input === "string" ? input : input instanceof URL ? input.toString() : input.url);
+      if (u.pathname === "/v1/search") return new Response(null, { status: 302, headers: { location: "https://evil.example/" } });
+      return base(input, init);
+    }) as typeof fetch;
+    vi.stubGlobal("fetch", fetchImpl);
+    const env = bindings();
+    const { state, cookie } = await startFlow(env);
+    const res = await call(env, `${PROD}/notion/callback?code=code-1234abcd&state=${encodeURIComponent(state)}`, { headers: { cookie } });
+    expect(res.status).toBe(502);
+    expect(calls2.map((c) => c.path)).toEqual(["/v1/oauth/token"]);
   });
 
   it("uses the duplicated template page when the person chose it", async () => {

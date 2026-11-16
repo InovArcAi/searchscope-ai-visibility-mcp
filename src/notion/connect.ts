@@ -211,7 +211,14 @@ async function notionCall(deps: NotionDeps, path: string, init: { method: string
   const doFetch = deps.fetchImpl ?? fetch;
   const sleep = deps.sleep ?? ((ms: number) => new Promise((r) => setTimeout(r, ms)));
   for (let attempt = 0; ; attempt++) {
-    const res = await doFetch(`${NOTION_API}${path}`, { ...init, redirect: "error" });
+    // Workers only accept "follow" or "manual" (redirect: "error" throws before
+    // the request is sent), so redirects are refused by hand: the token must
+    // never be re-sent to another host.
+    const res = await doFetch(`${NOTION_API}${path}`, { ...init, redirect: "manual" });
+    if (res.status >= 300 && res.status < 400) {
+      await res.body?.cancel().catch(() => undefined);
+      throw new NotionError(res.status, "Notion answered with a redirect.");
+    }
     if (res.status === 429 && attempt < 2) {
       const wait = Math.min(Number(res.headers.get("retry-after") ?? "1") * 1000 || 1000, MAX_RETRY_WAIT_MS);
       await res.body?.cancel().catch(() => undefined);
