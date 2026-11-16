@@ -14,7 +14,7 @@ export const SITEMAP_PATH = "/sitemap.xml";
 
 /** The public, indexable pages. /llms.txt lists the same documentation pages. */
 export function sitemapXml(origin: string): string {
-  const urls = ["/", "/docs/api", DOCS_MARKDOWN_PATH, "/extension/privacy", "/privacy", "/terms"];
+  const urls = ["/", "/docs/api", DOCS_MARKDOWN_PATH, "/extension/privacy", "/privacy", "/terms", "/notion"];
   return `<?xml version="1.0" encoding="UTF-8"?>
 <urlset xmlns="http://www.sitemaps.org/schemas/sitemap/0.9">
 ${urls.map((p) => `  <url><loc>${origin}${p}</loc></url>`).join("\n")}

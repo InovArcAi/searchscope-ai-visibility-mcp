@@ -11,6 +11,7 @@ import { checkLimits, clientIpKey, isLoopbackHost, redirectCharger } from "./sec
 import { isAcceptableOrigin, readBodyCapped, toolCallsIn } from "./security/request";
 import { EXTENSION_PRIVACY_PATH, extensionPrivacyHtml } from "./extension/privacy";
 import { PRIVACY_PATH, TERMS_PATH, privacyHtml, termsHtml } from "./legal/pages";
+import { handleNotion, NOTION_PATH } from "./notion/connect";
 import { DOCS_MARKDOWN_PATH, LLMS_TXT_PATH, SITEMAP_PATH, apiDocsMarkdown, llmsTxt, sitemapXml } from "./api/docs-markdown";
 
 function rateLimited(): Response {
@@ -162,10 +163,10 @@ ${PAGE_CSS}
 </div>
 
 <h2>Privacy</h2>
-<p class="note">Public website content is fetched and analysed in memory for the length of one request, then discarded. Nothing is stored. No accounts, no database, no cookies, no tracking. The crawler identifies itself as <code>SearchScopeAIVisibilityAuditor</code>, reads at most ${LIMITS.hardMaxPages} pages per request, honours sitemap hints in robots.txt, never submits forms, never runs scripts and refuses private, internal or loopback addresses.</p>
+<p class="note">Public website content is fetched and analysed in memory for the length of one request, then discarded. Nothing is stored. No accounts, no database, no tracking, and no cookies apart from a 10-minute one during <a href="/notion">Save to Notion</a>. The crawler identifies itself as <code>SearchScopeAIVisibilityAuditor</code>, reads at most ${LIMITS.hardMaxPages} pages per request, honours sitemap hints in robots.txt, never submits forms, never runs scripts and refuses private, internal or loopback addresses.</p>
 </main>
 <footer class="wrap">
-Published by <a href="${PUBLISHER_URL}">${PUBLISHER}</a>, ${PUBLISHER_LOCATION}. Version ${SERVICE_VERSION}. REST API docs at <a href="${origin}/docs/api">/docs/api</a>. Status at <a href="${origin}/health">/health</a>.
+Published by <a href="${PUBLISHER_URL}">${PUBLISHER}</a>, ${PUBLISHER_LOCATION}. Version ${SERVICE_VERSION}. REST API docs at <a href="${origin}/docs/api">/docs/api</a>. Save a report to Notion at <a href="${origin}/notion">/notion</a>. Status at <a href="${origin}/health">/health</a>.
 </footer>
 </body></html>`;
 }
@@ -250,6 +251,11 @@ export default {
     // rate-limit guards as /mcp, under the same limiter keys.
     if (url.pathname === "/api" || url.pathname.startsWith("/api/")) {
       return handleApi(request, env, url);
+    }
+
+    // Save a report to Notion (public OAuth connection, nothing stored).
+    if (url.pathname === NOTION_PATH || url.pathname.startsWith(`${NOTION_PATH}/`)) {
+      return handleNotion(request, env, url);
     }
 
     if (url.pathname === LLMS_TXT_PATH || url.pathname === DOCS_MARKDOWN_PATH) {
