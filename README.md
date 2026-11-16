@@ -197,9 +197,9 @@ Public website content is fetched and analysed in memory for the duration of one
 
 `/notion` lets a person save an audit straight into Notion through a public Notion connection (OAuth 2.0), with nothing stored: `src/notion/connect.ts`.
 
-1. `GET /notion` shows a one-field form. `POST /notion/start` signs the website address, a random nonce and a 10-minute expiry into the OAuth `state` (HMAC-SHA256 under a key derived from `NOTION_CLIENT_SECRET`), sets the nonce in a `__Host-` cookie (HttpOnly, Secure, SameSite=Lax, 10 minutes) and redirects to Notion's consent screen.
+1. `GET /notion` shows a one-field form. `POST /notion/start` signs the website address, a random nonce and a 10-minute expiry into the OAuth `state` (HMAC-SHA256 keyed with `NOTION_CLIENT_SECRET` over a fixed context plus the payload), sets the nonce in a `__Host-` cookie (HttpOnly, Secure, SameSite=Lax, 10 minutes) and redirects to Notion's consent screen.
 2. `GET /notion/callback` checks the signature, the expiry and that the cookie matches the nonce, then charges the same limiters as a REST audit, exchanges the code for a token, runs the audit and creates one page (Notion-flavored Markdown) under the template copy or the first page the person shared. The token is never stored, logged or returned.
-3. Site text in the report is escaped before it reaches Notion (`<`, `$` and `\` outside code), so a page cannot turn quoted text into Notion mentions, subpages or maths.
+3. Site text in the report is escaped before it reaches Notion (backslash, `<`, `$`, `[`, `]` and `!` outside fenced code, with fences tracked the CommonMark way), so a page cannot turn quoted text into Notion mentions, subpages, maths, links or images.
 
 Set two Worker secrets to switch it on: `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`, from the connection's Configuration tab in Notion's Developer portal. The connection must be a public connection with installation scope "Any workspace" and redirect URI `https://mcp.searchscope.com.au/notion/callback`. Without both secrets every `/notion` route answers 503.
 
