@@ -38,7 +38,8 @@
   }
   // No storage bindings (no KV, D1 or Durable Objects): the server is fully stateless.
   // Optional secrets, set on the Worker and never committed: API_KEY_SIGNING_SECRET
-  // (signs the free REST API keys) and RAPIDAPI_PROXY_SECRET (see README, section 2a).
+  // (signs the free REST API keys), RAPIDAPI_PROXY_SECRET (see README, section 2a), and
+  // NOTION_CLIENT_ID + NOTION_CLIENT_SECRET (Save to Notion, README section 9a).
   // Deploy with `npm run deploy` (needs a Cloudflare API token) or connect the
   // repository to Cloudflare Workers Builds for automatic deploys from `main`.
 }

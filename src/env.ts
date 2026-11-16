@@ -19,4 +19,8 @@ export interface Env {
    * RapidAPI path is off and RapidAPI traffic is limited per IP like anyone else.
    */
   RAPIDAPI_PROXY_SECRET?: string;
+  /** OAuth client ID of the public Notion connection (src/notion/connect.ts). Unset: /notion answers 503. */
+  NOTION_CLIENT_ID?: string;
+  /** OAuth client secret of the Notion connection. Also signs the OAuth state. Unset: /notion answers 503. */
+  NOTION_CLIENT_SECRET?: string;
 }

@@ -140,7 +140,7 @@ The suite covers URL validation (malformed, localhost, 127.0.0.1, private IPv4, 
 
 ## 5. Deployment
 
-The Worker has no storage. Its only bindings are the three rate limiters declared in `wrangler.jsonc`, which deploy with it and need no setup beyond a `namespace_id` that no other Worker on the account uses. Two optional secrets switch on parts of the REST API and are set on the Worker (dashboard: Workers & Pages, the Worker, Settings, Variables and Secrets; or `wrangler secret put`), never committed: `API_KEY_SIGNING_SECRET` (at least 32 random characters; signs the free API keys) and `RAPIDAPI_PROXY_SECRET` (the value from the RapidAPI listing's gateway settings). Secrets persist across deploys. Two deploy options:
+The Worker has no storage. Its only bindings are the three rate limiters declared in `wrangler.jsonc`, which deploy with it and need no setup beyond a `namespace_id` that no other Worker on the account uses. Two optional secrets switch on parts of the REST API and are set on the Worker (dashboard: Workers & Pages, the Worker, Settings, Variables and Secrets; or `wrangler secret put`), never committed: `API_KEY_SIGNING_SECRET` (at least 32 random characters; signs the free API keys) `RAPIDAPI_PROXY_SECRET` (the value from the RapidAPI listing's gateway settings), and `NOTION_CLIENT_ID` with `NOTION_CLIENT_SECRET` (Save to Notion, section 9a). Secrets persist across deploys. Two deploy options:
 
 **Option A: Cloudflare Workers Builds (recommended, no tokens in GitHub).** In the Cloudflare dashboard go to Workers & Pages, Create, Import a repository, pick this repo, keep the defaults (build command `npm install --legacy-peer-deps`, deploy command `npx wrangler deploy`). Every push to `main` then deploys automatically. This is how the production Worker is deployed, which is why `.github/workflows/deploy.yml` only runs typecheck and tests.
 
@@ -191,7 +191,17 @@ A homepage that redirects to a different site also spends that site's per-site b
 
 ## 9. Privacy behaviour
 
-Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes, no cookies and no user accounts. Free API keys are signed, not stored, so there is no list of keys or of who asked for one. Cloudflare Workers observability logs are sampled at 20% and can include the URL that was audited, but never page content. Workers Logs record request headers; Cloudflare states it redacts sensitive ones such as `Authorization`, which is the only header an API key is read from, and the Worker never logs a key itself. Fetched HTML never leaves the request.
+Public website content is fetched and analysed in memory for the duration of one request and is not stored anywhere. There is no database, no KV, no cache writes and no user accounts. The only cookie is a 10-minute random nonce set during Save to Notion (section 9a). Free API keys are signed, not stored, so there is no list of keys or of who asked for one. Cloudflare Workers observability logs are sampled at 20% and can include the URL that was audited, but never page content. Workers Logs record request headers; Cloudflare states it redacts sensitive ones such as `Authorization`, which is the only header an API key is read from, and the Worker never logs a key itself. Fetched HTML never leaves the request.
+
+## 9a. Save to Notion
+
+`/notion` lets a person save an audit straight into Notion through a public Notion connection (OAuth 2.0), with nothing stored: `src/notion/connect.ts`.
+
+1. `GET /notion` shows a one-field form. `POST /notion/start` signs the website address, a random nonce and a 10-minute expiry into the OAuth `state` (HMAC-SHA256 under a key derived from `NOTION_CLIENT_SECRET`), sets the nonce in a `__Host-` cookie (HttpOnly, Secure, SameSite=Lax, 10 minutes) and redirects to Notion's consent screen.
+2. `GET /notion/callback` checks the signature, the expiry and that the cookie matches the nonce, then charges the same limiters as a REST audit, exchanges the code for a token, runs the audit and creates one page (Notion-flavored Markdown) under the template copy or the first page the person shared. The token is never stored, logged or returned.
+3. Site text in the report is escaped before it reaches Notion (`<`, `$` and `\` outside code), so a page cannot turn quoted text into Notion mentions, subpages or maths.
+
+Set two Worker secrets to switch it on: `NOTION_CLIENT_ID` and `NOTION_CLIENT_SECRET`, from the connection's Configuration tab in Notion's Developer portal. The connection must be a public connection with installation scope "Any workspace" and redirect URI `https://mcp.searchscope.com.au/notion/callback`. Without both secrets every `/notion` route answers 503.
 
 ## 10. Connecting another MCP client
 
