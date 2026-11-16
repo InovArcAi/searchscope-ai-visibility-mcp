@@ -273,14 +273,26 @@ export function buildSiteModel(crawl: CrawlResult): SiteModel {
       if (v) businessIds.add(`${k}: ${v}`);
     }
   }
+  // A company name in running copy is often someone else's (an example, a
+  // client, a quoted record), so a legal name is only read from footers and
+  // from About and Contact pages, and never from inside quotation marks.
+  const legalFromText = (text: string, source: string): void => {
+    if (legalName) return;
+    for (const m of text.matchAll(LEGAL_SUFFIX_RE)) {
+      if (/["“‘']\s*$/.test(text.slice(Math.max(0, (m.index ?? 0) - 2), m.index))) continue;
+      if (m[1] && m[2]) {
+        legalName = { value: `${m[1]} ${m[2]}`, confidence: "medium", source };
+        return;
+      }
+    }
+  };
   for (const p of pages) {
     const text = `${p.parsed.footerText} ${p.parsed.paragraphs.join(" ")}`;
     for (const m of text.matchAll(ABN_RE)) businessIds.add(`${m[1]} ${m[2]}`);
-    if (!legalName) {
-      const m = LEGAL_SUFFIX_RE.exec(text);
-      LEGAL_SUFFIX_RE.lastIndex = 0;
-      if (m?.[1] && m[2]) legalName = { value: `${m[1]} ${m[2]}`, confidence: "medium", source: `text on ${p.finalUrl}` };
-    }
+    legalFromText(p.parsed.footerText, `footer on ${p.finalUrl}`);
+  }
+  for (const p of pages) {
+    if (p.role === "about" || p.role === "contact") legalFromText(p.parsed.paragraphs.join(" "), `text on ${p.finalUrl}`);
   }
 
   // Locations
