@@ -15,8 +15,9 @@
  *
  * The cookie ties the callback to the browser that started the flow, so a
  * third party cannot send someone a callback link that drops an audit of a
- * site they chose into that person's Notion. The state is signed with a key
- * derived from NOTION_CLIENT_SECRET, so no extra secret is needed.
+ * site they chose into that person's Notion. The state is an HMAC-SHA256 keyed
+ * with NOTION_CLIENT_SECRET over a fixed context string plus the payload, so no
+ * extra secret is needed.
  *
  * The callback runs a full audit, so it pays exactly what a REST audit pays:
  * Host allow-list, the per-client and global limiters, the tool-call weight
@@ -53,9 +54,11 @@ const HTML_HEADERS = {
   "cache-control": "no-store",
   "x-content-type-options": "nosniff",
   "x-frame-options": "DENY",
-  // same-origin, so the form post carries a real Origin header (see the /docs/api note in index.ts).
-  "referrer-policy": "same-origin",
+  // The callback URL carries the one-time code, so nothing passes it on.
+  "referrer-policy": "no-referrer",
 };
+/** The form page only: same-origin, so its post carries a real Origin header (see the /docs/api note in index.ts). */
+const FORM_HEADERS = { "referrer-policy": "same-origin" };
 
 export function notionConfigured(env: Env): env is Env & { NOTION_CLIENT_ID: string; NOTION_CLIENT_SECRET: string } {
   return Boolean(env.NOTION_CLIENT_ID?.trim() && env.NOTION_CLIENT_SECRET && env.NOTION_CLIENT_SECRET.length >= 16);
@@ -156,26 +159,30 @@ function cookieValue(request: Request): string | undefined {
 // ---------------------------------------------------------------- markdown
 
 /**
- * The report quotes text from the audited site. Notion-flavored Markdown
- * turns some tags into real workspace objects (<page> creates a subpage,
- * <mention> pings a person) and `$...$` into maths, so outside code those
- * characters are escaped and site text stays plain text. Code fences and
- * inline code spans are already literal in Notion and are left untouched.
+ * The report quotes text from the audited site, and some site values (brand
+ * names, URLs, schema snippets) reach it unescaped for Markdown. Notion-flavored
+ * Markdown turns some tags into real workspace objects (<page> creates a
+ * subpage, <mention> pings a person), `$...$` into maths and `[label](url)` or
+ * `![](url)` into links and images, so outside fenced code every one of those
+ * characters is escaped and site text stays plain text. Fences follow
+ * CommonMark: up to 3 spaces of indent, and a fence only closes on the same
+ * character repeated at least as many times as it opened with.
  */
 export function toNotionMarkdown(report: string): string {
-  let inFence = false;
+  let open: { char: string; length: number } | null = null;
   return report
     .split("\n")
     .map((line) => {
-      if (/^\s*(```|~~~)/.test(line)) {
-        inFence = !inFence;
+      const fence = /^ {0,3}(`{3,}|~{3,})/.exec(line);
+      if (open) {
+        if (fence && fence[1]![0] === open.char && fence[1]!.length >= open.length && line.trim() === fence[1]) open = null;
         return line;
       }
-      if (inFence) return line;
-      return line
-        .split(/(`[^`]*`)/)
-        .map((part, i) => (i % 2 === 1 ? part : part.replace(/\\/g, "\\\\").replace(/</g, "\\<").replace(/\$/g, "\\$")))
-        .join("");
+      if (fence && !(fence[1]![0] === "`" && line.slice(fence[0].length).includes("`"))) {
+        open = { char: fence[1]![0]!, length: fence[1]!.length };
+        return line;
+      }
+      return line.replace(/[\\<$[\]!]/g, (c) => `\\${c}`);
     })
     .join("\n");
 }
@@ -298,12 +305,13 @@ function isOwnHost(hostname: string): boolean {
   return isLoopbackHost(hostname) || SERVICE_HOSTNAMES.includes(hostname);
 }
 
-/** A browser form post from our own pages only (or no Origin at all). */
-function isOwnOrigin(origin: string | null): boolean {
+/** A browser form post from our own pages only (or no Origin at all). Loopback origins count only when the request itself is local (wrangler dev). */
+function isOwnOrigin(origin: string | null, requestHost: string): boolean {
   if (origin === null) return true;
   try {
     const o = new URL(origin);
-    return (o.protocol === "https:" || (o.protocol === "http:" && isLoopbackHost(o.hostname))) && isOwnHost(o.hostname) && o.origin === origin;
+    if (isLoopbackHost(o.hostname)) return isLoopbackHost(requestHost) && o.origin === origin;
+    return o.protocol === "https:" && SERVICE_HOSTNAMES.includes(o.hostname) && o.origin === origin;
   } catch {
     return false;
   }
@@ -321,7 +329,7 @@ function looksPublic(site: string): boolean {
 }
 
 async function start(request: Request, env: Env & { NOTION_CLIENT_ID: string; NOTION_CLIENT_SECRET: string }, url: URL): Promise<Response> {
-  if (!isOwnOrigin(request.headers.get("origin"))) return problem(403, "Not allowed", "This form can only be sent from this site.");
+  if (!isOwnOrigin(request.headers.get("origin"), url.hostname)) return problem(403, "Not allowed", "This form can only be sent from this site.");
   const { MCP_RATE_LIMIT_PER_IP: perIp, MCP_RATE_LIMIT_GLOBAL: global } = env;
   const client = clientIpKey(request, url.hostname);
   if (!client || !perIp || !global) return limitProblem("unavailable")!;
@@ -430,14 +438,23 @@ export async function handleNotion(request: Request, env: Env, url: URL, deps: N
   if (path !== NOTION_PATH && path !== NOTION_START_PATH && path !== NOTION_CALLBACK_PATH) {
     return new Response("Not Found", { status: 404, headers: { "x-content-type-options": "nosniff" } });
   }
+  // The flow only completes on the canonical host: the cookie is per host and Notion returns to SERVICE_ORIGIN.
+  const canonical = new URL(SERVICE_ORIGIN);
+  if (!isLoopbackHost(url.hostname) && url.host !== canonical.host) {
+    if (path === NOTION_PATH && (request.method === "GET" || request.method === "HEAD")) {
+      return new Response(null, { status: 308, headers: { location: `${SERVICE_ORIGIN}${NOTION_PATH}`, "cache-control": "no-store" } });
+    }
+    return new Response("Use https://mcp.searchscope.com.au/notion.", { status: 403, headers: { "x-content-type-options": "nosniff" } });
+  }
   const want = path === NOTION_START_PATH ? "POST" : "GET";
-  if (request.method !== want && !(want === "GET" && request.method === "HEAD")) {
+  // HEAD only on the form page: on the callback it would run the whole flow.
+  if (request.method !== want && !(path === NOTION_PATH && request.method === "HEAD")) {
     return new Response("Method Not Allowed", { status: 405, headers: { allow: want, "x-content-type-options": "nosniff" } });
   }
   if (!notionConfigured(env)) {
     return problem(503, "Notion saving is not available yet", "Saving reports to Notion is not switched on yet. Every audit is still free at the REST API and the MCP server.");
   }
-  if (path === NOTION_PATH) return htmlPage(200, "Save to Notion", formHtml(), {}, "index, follow");
+  if (path === NOTION_PATH) return htmlPage(200, "Save to Notion", formHtml(), FORM_HEADERS, "index, follow");
   if (path === NOTION_START_PATH) return start(request, env, url);
   return callback(request, env, url, deps);
 }

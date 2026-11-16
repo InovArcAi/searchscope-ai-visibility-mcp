@@ -129,6 +129,7 @@ describe("Save to Notion: pages and switches", () => {
     expect(html).toContain("never stored");
     expect(html).not.toContain("\u2014");
     expect(res.headers.get("x-frame-options")).toBe("DENY");
+    expect(res.headers.get("referrer-policy")).toBe("same-origin");
   });
 
   it("refuses other hosts and wrong methods", async () => {
@@ -174,6 +175,18 @@ describe("Save to Notion: start", () => {
     }
   });
 
+  it("refuses a loopback Origin on the public host", async () => {
+    const res = await call(bindings(), `${PROD}/notion/start`, { method: "POST", headers: { origin: "http://localhost:8080", "content-type": "application/x-www-form-urlencoded" }, body: "url=example.com" });
+    expect(res.status).toBe(403);
+  });
+
+  it("sends the workers.dev form to the canonical host, and refuses HEAD on the callback", async () => {
+    const res = await call(bindings(), "https://searchscope-ai-visibility-mcp.searchscope.workers.dev/notion");
+    expect(res.status).toBe(308);
+    expect(res.headers.get("location")).toBe(`${PROD}/notion`);
+    expect((await call(bindings(), `${PROD}/notion/callback?code=code-1234abcd&state=x`, { method: "HEAD" })).status).toBe(405);
+  });
+
   it("charges the front-door limiters and stops when they are spent", async () => {
     const env = bindings({ MCP_RATE_LIMIT_PER_IP: limiter(0) });
     const { res } = await startFlow(env);
@@ -201,6 +214,7 @@ describe("Save to Notion: callback", () => {
     expect(html).toContain(NEW_PAGE_URL);
     expect(html).not.toContain(TOKEN);
     expect(res.headers.get("set-cookie")).toContain("Max-Age=0");
+    expect(res.headers.get("referrer-policy")).toBe("no-referrer");
 
     const [token, search, create] = calls;
     expect(calls.map((c) => c.path)).toEqual(["/v1/oauth/token", "/v1/search", "/v1/pages"]);
@@ -298,18 +312,26 @@ describe("Save to Notion: callback", () => {
 });
 
 describe("Save to Notion: report text", () => {
-  it("escapes Notion tags, maths and backslashes in site text but leaves code alone", () => {
+  it("escapes Notion tags, maths, links, images and backslashes outside fenced code", () => {
     const report = [
-      'Quoted: "<page>Owned</page> <mention url=\\"user://1\\">x</mention> costs $5 to $10"',
-      "Inline `<script type=\"application/ld+json\">` stays",
+      'Quoted: "<page>Owned</page> costs $5 [Verify your login](https://phish.example/) ![x](https://img.example/a.png) a\\b"',
       "```json",
-      '{"price": "$5", "x": "<b>"}',
+      '{"price": "$5", "x": "<b>", "link": "[a](b)"}',
       "```",
+      "after",
     ].join("\n");
-    const out = toNotionMarkdown(report);
-    const lines = out.split("\n");
-    expect(lines[0]).toBe('Quoted: "\\<page>Owned\\</page> \\<mention url=\\\\"user://1\\\\">x\\</mention> costs \\$5 to \\$10"');
-    expect(lines[1]).toBe("Inline `<script type=\"application/ld+json\">` stays");
-    expect(lines[3]).toBe('{"price": "$5", "x": "<b>"}');
+    const lines = toNotionMarkdown(report).split("\n");
+    expect(lines[0]).toBe('Quoted: "\\<page>Owned\\</page> costs \\$5 \\[Verify your login\\](https://phish.example/) \\!\\[x\\](https://img.example/a.png) a\\\\b"');
+    expect(lines[2]).toBe('{"price": "$5", "x": "<b>", "link": "[a](b)"}');
+    expect(lines[4]).toBe("after");
+  });
+
+  it("tracks fences like CommonMark, so a mismatched or indented fence cannot unescape site text", () => {
+    // ~~~ does not close a ``` fence, so the <page> line stays inside code (literal in Notion).
+    expect(toNotionMarkdown(["```", "~~~", "<page>x</page>", "```", "<page>y</page>"].join("\n")).split("\n")[4]).toBe("\\<page>y\\</page>");
+    // A line indented 4 spaces is not a fence, so text after it is still escaped.
+    expect(toNotionMarkdown(["    ```", "<page>z</page>"].join("\n")).split("\n")[1]).toBe("\\<page>z\\</page>");
+    // Inline backticks are not a code exception any more.
+    expect(toNotionMarkdown("x `` <mention-user/> ``")).toBe("x `` \\<mention-user/> ``");
   });
 });
