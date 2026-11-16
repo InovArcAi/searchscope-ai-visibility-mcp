@@ -1,4 +1,6 @@
-import { describe, expect, it } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { runEntities } from "../src/tools/run";
+import { createFakeFetch, ROUTES, SITE, type Route } from "./helpers/fakeSite";
 import { classifyPath } from "../src/crawl/crawler";
 import { buildSiteModel } from "../src/analysis/site";
 import { buildAudit } from "../src/analysis/audit";
@@ -355,5 +357,45 @@ describe("scraped offerings are never used as raw regular expressions", () => {
     const { escapeRegExp } = await import("../src/analysis/audit");
     expect(() => new RegExp(escapeRegExp("[x"), "i")).not.toThrow();
     expect(new RegExp(escapeRegExp("(a+)+$x"), "i").test("(a+)+$x services")).toBe(true);
+  });
+});
+
+describe("Legal name detection", () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  function routesWith(edit: (url: string, body: string) => string): Record<string, Route> {
+    const out: Record<string, Route> = {};
+    for (const [url, route] of Object.entries(ROUTES)) {
+      const body = (route.body ?? "").replace("Acme Plumbing Pty Ltd, ABN", "Acme Plumbing, ABN");
+      out[url] = { ...route, body: edit(url, body) };
+    }
+    return out;
+  }
+
+  it("ignores company names in running copy and quotes on other pages (an example is not the site's legal name)", async () => {
+    const routes = routesWith((url, body) =>
+      url.includes("/services/blocked-drains/")
+        ? body.replace("</h1>", '</h1><p>If your ASIC registration shows "Smith Electrical Services Pty Ltd" and your profile shows Smith Electrical, that is a mismatch. Our client Jones Building Pty Ltd had the same issue.</p>')
+        : body,
+    );
+    vi.stubGlobal("fetch", createFakeFetch({ routes }));
+    const out = await runEntities({ url: SITE }, {});
+    expect(out.ok).toBe(true);
+    if (!out.ok) return;
+    const orgs = (out.data as any).relatedEntities.organisation.map((o: { name: string }) => o.name);
+    expect(orgs).toEqual(["Acme Plumbing"]);
+  });
+
+  it("still reads a legal name from the footer or the About page", async () => {
+    vi.stubGlobal("fetch", createFakeFetch());
+    const footer = await runEntities({ url: SITE }, {});
+    expect(footer.ok && (footer.data as any).relatedEntities.organisation.map((o: { name: string }) => o.name)).toContain("Acme Plumbing Pty Ltd");
+
+    const routes = routesWith((url, body) => (url === `${SITE}/about/` ? body.replace("</h1>", "</h1><p>Acme Plumbing is a trading name of Acme Holdings Pty Ltd.</p>") : body));
+    vi.stubGlobal("fetch", createFakeFetch({ routes }));
+    const about = await runEntities({ url: SITE }, {});
+    expect(about.ok && (about.data as any).relatedEntities.organisation.map((o: { name: string }) => o.name)).toContain("Acme Holdings Pty Ltd");
   });
 });
