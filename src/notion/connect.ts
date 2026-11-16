@@ -245,10 +245,12 @@ interface TokenGrant {
 }
 
 async function exchangeCode(env: { NOTION_CLIENT_ID: string; NOTION_CLIENT_SECRET: string }, code: string, deps: NotionDeps): Promise<TokenGrant> {
-  const basic = btoa(`${env.NOTION_CLIENT_ID.trim()}:${env.NOTION_CLIENT_SECRET}`);
+  // Trimmed: a value pasted into the dashboard can carry a stray space or newline.
+  const basic = btoa(`${env.NOTION_CLIENT_ID.trim()}:${env.NOTION_CLIENT_SECRET.trim()}`);
   const body = await notionCall(deps, "/oauth/token", {
     method: "POST",
-    headers: { authorization: `Basic ${basic}`, "content-type": "application/json", accept: "application/json" },
+    // Notion-Version is required on the token endpoint too (API reference, create-a-token).
+    headers: { authorization: `Basic ${basic}`, "notion-version": NOTION_VERSION, "content-type": "application/json", accept: "application/json" },
     body: JSON.stringify({ grant_type: "authorization_code", code, redirect_uri: `${SERVICE_ORIGIN}${NOTION_CALLBACK_PATH}` }),
   });
   const grant = body as Partial<TokenGrant> | undefined;
@@ -392,7 +394,9 @@ async function callback(request: Request, env: Env & { NOTION_CLIENT_ID: string;
   let grant: TokenGrant;
   try {
     grant = await exchangeCode(env, code, deps);
-  } catch {
+  } catch (e) {
+    // Notion's own short error text only (never the code, secret or token), so a failed exchange can be diagnosed from the logs.
+    console.warn("notion token exchange failed", e instanceof NotionError ? `${e.status} ${e.message}` : "network error");
     return problem(502, "Notion sign-in failed", "Notion did not accept the sign-in. Start again, and choose at least one page to share.", clearCookie);
   }
 
@@ -427,6 +431,7 @@ ${open}
     );
   } catch (e) {
     const status = e instanceof NotionError ? e.status : 0;
+    console.warn("notion save failed", e instanceof NotionError ? `${e.status} ${e.message}` : "network error");
     const why = status === 403 || status === 404 ? "Notion did not allow the connection to add a page there. Start again and choose a page you can edit." : "Notion did not accept the report. Please try again in a minute.";
     return problem(502, "Could not save to Notion", why, clearCookie);
   }

@@ -100,6 +100,14 @@ async function call(env: Env, url: string, init: { method?: string; headers?: Re
   return new Response(res.status === 303 ? null : text, { status: res.status, headers: res.headers });
 }
 
+async function startFlowWith(env: Env): Promise<{ state: string; cookie: string }> {
+  const secret = String(env.NOTION_CLIENT_SECRET);
+  const { res, cookie } = await startFlow(env);
+  const state = new URL(res.headers.get("location")!).searchParams.get("state")!;
+  expect(await verifyState(secret, state)).not.toBeNull();
+  return { state, cookie };
+}
+
 async function startFlow(env: Env, site = SITE): Promise<{ res: Response; state: string; cookie: string }> {
   const res = await call(env, `${PROD}/notion/start`, {
     method: "POST",
@@ -219,6 +227,7 @@ describe("Save to Notion: callback", () => {
     const [token, search, create] = calls;
     expect(calls.map((c) => c.path)).toEqual(["/v1/oauth/token", "/v1/search", "/v1/pages"]);
     expect(token!.headers.get("authorization")).toBe(`Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`);
+    expect(token!.headers.get("notion-version")).toBe(NOTION_VERSION);
     expect(token!.body).toEqual({ grant_type: "authorization_code", code: "code-1234abcd", redirect_uri: `${PROD}/notion/callback` });
     expect(search!.headers.get("authorization")).toBe(`Bearer ${TOKEN}`);
     expect(search!.headers.get("notion-version")).toBe(NOTION_VERSION);
@@ -237,6 +246,15 @@ describe("Save to Notion: callback", () => {
     const ip = env.MCP_RATE_LIMIT_PER_IP as FakeLimiter;
     expect(ip.deltas).toContain(2);
     expect((env.MCP_RATE_LIMIT_PER_TARGET as FakeLimiter).keys).toContain("acmeplumbing.com.au");
+  });
+
+  it("trims a pasted secret with a trailing newline before Basic auth", async () => {
+    vi.stubGlobal("fetch", fakeNotion(calls));
+    const env = bindings({ NOTION_CLIENT_SECRET: `${CLIENT_SECRET}\n`, NOTION_CLIENT_ID: ` ${CLIENT_ID} ` });
+    const { state, cookie } = await startFlowWith(env);
+    const res = await call(env, `${PROD}/notion/callback?code=code-1234abcd&state=${encodeURIComponent(state)}`, { headers: { cookie } });
+    expect(res.status).toBe(200);
+    expect(calls[0]!.headers.get("authorization")).toBe(`Basic ${btoa(`${CLIENT_ID}:${CLIENT_SECRET}`)}`);
   });
 
   it("uses the duplicated template page when the person chose it", async () => {
